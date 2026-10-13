@@ -1581,6 +1581,7 @@ flowchart TD
   - `dsh-client-ui-responsive/src/client/mobile/form-marker.ts:88` — `html[data-dsh-mobile-form]` 唯一发布点。
   - `dsh-client-ui-responsive/src/client/mobile/sidebar-gestures.ts` — `touchstart/move/end/cancel` 内容区仲裁唯一入口；左、右设置键分别为 `dsh.android.sidebarSwipe.left` 与 `.right`，缺省启用、`0` 关闭；32 CSS px 外边条不拦截，64px 横移判动作；多指 start/move 会取消，touchend 仅在无剩余触点时结算；仅受 `data-dsh-mobile-form` 门控。
   - `dsh-client-ui-responsive/src/client/mobile/back-stack.ts:334` — `window.__dshBack` 入口（壳侧返回键唯一可达点）；`:551` 是上行 `setAvailable` 的唯一出口。
+  - `dsh-client-ui-responsive/src/client/mobile/panel-nav-drawer.ts` — `PanelNavDrawer` 在进入主面板或主视图会话变化时收起手机抽屉。会话真源为 `sessions.list.byId[*].retainedBy.mainView`；`watchSessionNavigation` 合并同一轮 retain/release 通知，卸载取消排队动作。主视图身份未变、失败/取消创建和宽屏停靠侧栏不触发收起。设备复核用 `scripts/verify-session-navigation.mjs`，同时检查上游选中行、空白编辑器、抽屉和壳侧返回栈。
   - `dsh-client-ui-responsive/src/client/mobile/native-browser-presentation.ts:61` — `browserHostBounds` 跨桥下推（原生覆盖层几何/可见性的唯一来源）。
   - `dsh-client-ui-responsive/src/client/enter-guard.ts:63` — 形态门用 `window.innerWidth` 直读（与标记不同源）。
   - `dsh-host-web-compat/lib/index.js:328` — `publishReady()` 判据 = `rendered() && !bootPagePresent()`；失败页满足旧 `rendered()`（`#root` 有子节点），故必须排除启动页仍在场（`dsh-host-web-compat/lib/index.js:286`）。
@@ -2283,6 +2284,7 @@ plugins/dsh-android-vdisplay/test/tools-callable.test.mjs
 .github/workflows/pr-gate.yml
 .github/workflows/build-apk.yml
 scripts/verify-webview-015.mjs
+scripts/verify-session-navigation.mjs
 scripts/verify-state-sync.mjs
 scripts/verify-browser-host.mjs
 scripts/verify-browser-panel.mjs

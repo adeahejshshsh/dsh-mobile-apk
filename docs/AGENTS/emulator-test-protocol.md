@@ -121,6 +121,10 @@ adb -s <serial> logcat -d -s dsh-browser:V AndroidRuntime:E System.err:W
 
 ## 5. A 轨套件与连接
 
+会话导航回归使用 `node scripts/verify-session-navigation.mjs --serial <serial> --session-title <已有非空会话标题>`。套件自行解析当前应用的 WebView，缺省让 ADB 分配独立端口，显式 `--port` 使用 `--no-rebind`，退出只移除本次建立的转发。先关闭其他设置/业务弹窗；无凭据的测试环境允许通过上游「稍后配置」关闭模型引导。断言同时覆盖上游选中会话行、编辑器、手机抽屉和壳侧返回层；宽屏必须保留停靠侧栏，复用空白会话必须保留其草稿。该 CDP 套件不替代原生点击、键盘及滚动截图。
+
+设备可按任务约束替换：Android SDK AVD 在无窗口、WHPX、2 核和约 2 GB 内存配置下串行覆盖两个方向。记录实际 serial、API、ABI、`wm size/density` 与 WebView bounds；坐标必须加上 WebView 的原生偏移，不能假设旋转后仍从 `(0,0)` 开始。默认 GMT 在部分 WebView 中会被 `Intl` 表示成 `+00:00`，若被会话时区契约拒绝，应先把测试设备设为有效 IANA 时区并回读，不得把消息提交失败算作导航验收通过。
+
 套件清单与参数约定见 `AGENTS.md` §2 的表（`verify-webview-015` / `verify-state-sync` / `verify-browser-host` / `verify-browser-panel` / `verify-vdisplay-viewer` / `verify-vdisplay-float` / `verify-engine-log-copy`）。
 
 硬性约束（违反会**静默连错目标**）：

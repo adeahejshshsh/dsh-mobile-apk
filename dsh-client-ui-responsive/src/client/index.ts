@@ -64,7 +64,7 @@ import { ReferenceMenuEnhancer, REFERENCE_BAR_CSS } from './mobile/reference-men
 import { BackStackSignal } from './mobile/back-stack.ts'
 import { MAIN_PANEL_BACK_CSS } from './mobile/main-panel-back.css.ts'
 import { MainPanelBackMount } from './mobile/main-panel-back.ts'
-import { PanelNavDrawer } from './mobile/panel-nav-drawer.ts'
+import { PanelNavDrawer, mainViewSessionId, watchSessionNavigation } from './mobile/panel-nav-drawer.ts'
 import { MobileSidebarGestures } from './mobile/sidebar-gestures.ts'
 import { SessionMarker, type SessionsFace } from './mobile/session-marker.ts'
 import {
@@ -510,6 +510,7 @@ export function apply(ctx: ClientContext): void {
     // including that panel's back control, which the user then cannot tap.
     const drawer = new PanelNavDrawer({
       activePanelId: () => ctx.layout.panelInfo.getSnapshot().activePanelId,
+      currentSessionId: () => mainViewSessionId(ctx.sessions.list.getSnapshot()),
       collapseDrawer: () => { ctx.layout.toggleSidebar() },
       frame: () => document.querySelector('[data-dsh-frame]'),
     })
@@ -517,7 +518,13 @@ export function apply(ctx: ClientContext): void {
       backStack.refresh()
       drawer.sync()
     })
+    // APK #349: New Session changes main-view ownership while activePanelId
+    // stays null. Reconcile after retain/release completes, not from a click
+    // label or the removed sessions.list.current field. Catalog updates with
+    // the same main Session leave a manually reopened drawer alone.
+    const unsubscribeSessions = watchSessionNavigation(drawer, ctx.sessions.list, () => { backStack.refresh() })
     return () => {
+      unsubscribeSessions()
       unsubscribe()
       backStack.detach()
     }
