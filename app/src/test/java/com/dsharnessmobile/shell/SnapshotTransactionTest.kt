@@ -1373,8 +1373,12 @@ class SnapshotTransactionTest {
   fun writeMarkerFailureAbortsInsteadOfContinuingWithoutJournal() {
     val filesDir = tempDir()
     try {
-      // 目标 marker 路径占成目录：rename 到它、直写它都会失败。
-      SnapshotTransaction.markerFile(filesDir).mkdirs()
+      // An empty directory may be replaced by File.renameTo on Windows.
+      // Keep a child so both rename and direct writes fail on every host.
+      val markerDirectory = SnapshotTransaction.markerFile(filesDir)
+      assertTrue(markerDirectory.mkdirs())
+      val sentinel = File(markerDirectory, "occupied")
+      sentinel.writeText("keep")
       var threw = false
       try {
         SnapshotTransaction.writeMarker(
@@ -1389,6 +1393,7 @@ class SnapshotTransactionTest {
         )
       }
       assertTrue("marker 写失败必须抛（旧实现静默继续，事务再无 journal）", threw)
+      assertEquals("keep", sentinel.readText())
     } finally {
       SnapshotFs.deletePath(filesDir)
     }
