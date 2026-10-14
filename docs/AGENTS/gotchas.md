@@ -1745,3 +1745,5 @@ EngineBootContinuationTest用latch驱动真实观察函数：winner持CAS但无�
     **判据**：构建产物必须同时含 `robots.txt` 与 `sitemap.xml`；门禁用例断言 build.mjs 里出现 sitemap 产出与 `Sitemap:` 声明。**注意自证陷阱**：JSON-LD 的 `downloadUrl` 只声明**确有其资产**的 URL——声明一个 404 比不声明更糟（与坑 172 同源的"名字对不对"问题）。
     **宿主限制（如实记，非缺陷）**：`kelai141.github.io/robots.txt` 不存在，项目站**无法**从上层目录声明 sitemap；这是 GitHub Pages 项目站的固有形态，不影响站点自身 robots/sitemap 可访问。
    **教训**：门禁脚本改完，必须**用工作流里逐字一致的那条命令**本地复验一次，而不是用等价的手工命令。这个坑与「门禁必须被门禁测试」同源。
+
+299. **TAR EOF does not certify XZ stream integrity (#359).** The decoder probe stopped at TAR end markers, so a long padded archive could hide a corrupt or truncated XZ footer beyond the bytes requested by the TAR reader. Closing either stream does not drain it. The production probe now reads the remaining XZ stream to EOF before reporting success. Runtime self-tests cover valid padding and both footer failures (14 checks); an installed APK's 150,009,840-byte snapshot also decoded successfully with the declared decoder versions. Device WebView regression passed in portrait and landscape; no APK or runtime extraction behavior is changed by this build-time gate correction.
