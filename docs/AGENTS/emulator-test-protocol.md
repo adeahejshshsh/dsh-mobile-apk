@@ -26,9 +26,26 @@
 全部满足「代码层与 CDP 层都是绿的、只有真机用户层暴露」，先例见协调仓
 `docs/0.14.1-preview-DEVICE-DEFECT-TRIAGE-AND-TEST-REFLECTION.md`。
 
-## 1. 适用范围（代码层恒需；A/B 两轨何时必跑）
+## 1. 适用范围（按风险选择证据；A/B 两轨何时必跑）
 
-**代码层恒需**（Kotlin 单测 + 静态门禁 + 本改动的反证用例），任何改动不得例外。
+### Risk classification
+
+Apply the risk classification in `AGENTS.md` section 4 before selecting evidence:
+
+| Class | Scope | Required evidence |
+|---|---|---|
+| L0 | Documentation and comments without behavior changes | Relevant CI and documentation checks |
+| L1 | Internal script/build logic without changing a security-sensitive decision | Targeted tests or self-tests plus a controlled negative case |
+| L2 | Snapshot transactions, signatures, bridge contracts, or a gate's acceptance/rejection criteria | Immediate code, CDP, and ADB validation of the affected behavior |
+| L3 | UI/UX and Android shell behavior | Immediate emulator validation at all three layers |
+
+The script exemption below applies only to L1 changes. A change to a gate's acceptance criteria is L2 even if its implementation is a script. Mixed changes use the highest applicable class. For L2 build-time gates, execute positive and negative checks against the actual gate and validate the affected runtime path on a device; a successful device boot alone does not prove rejection of corrupt input. Standalone web pages use browser validation of their own behavior rather than APK installation.
+
+All release candidates still require the final-source, packaged-APK validation described in `AGENTS.md` section 2.2. Development hot-push or earlier integration evidence cannot substitute for that final run. PRs without device validation must state that explicitly.
+
+Coordination-only tools and delivery plans are external prerequisites, not files shipped in this APK repository. In particular, `scripts/clean-deploy-tmp.mjs` referenced by `AGENTS.md` section 4 belongs to the coordination checkout. Its reviewable repository/commit must accompany a cleanup handoff before it can be treated as delivered here. This protocol does not certify or provide that deletion implementation.
+
+**Code evidence follows the affected inputs**: use relevant Kotlin tests, static gates, and regression/negative cases for runtime changes. L0 documentation does not require unrelated Kotlin tests; L1 requires targeted script evidence as specified above.
 
 **另加 A/B 两轨**（A 轨 CDP 断言 + B 轨 adb 用户级操作）——凡改动会让用户**看见或摸到**不同：
 
@@ -38,7 +55,7 @@
 - 交互路径：点击/长按/滑动/文本输入/按键、键盘与 IME、权限弹窗与授权引导；
 - 桥面：任何页面可调用的桥方法增删改（页面侧可见行为变化）。
 
-**不强制 B 轨**（但仍要走对应静态门禁）：纯文档、构建脚本、门禁脚本自身、Kotlin 内部重构（不改可见行为，且单测覆盖）。
+**不强制 B 轨**（按上表 L0/L1 分类，仍需对应证据）：纯文档、构建脚本内部逻辑、不改变验收判据的门禁脚本维护、Kotlin 内部重构（不改可见行为，且单测覆盖）。L2 判据和安全敏感面不适用此豁免。
 
 判据只有一句：**改完之后，一个真人用这块屏幕能不能完成同一件事**。CDP 断言回答不了这个问题。
 
