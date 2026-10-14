@@ -42,7 +42,7 @@
 | libiconv | 1.19 | LGPL-2.1+ | [termux-packages/libiconv](https://github.com/termux/termux-packages/tree/master/packages/libiconv) |
 | liblzma | 5.8.4 | PD + LGPL-2.1+ + GPL-2.0+ | [termux-packages/liblzma](https://github.com/termux/termux-packages/tree/master/packages/liblzma) |
 | libmd | 1.3.0 | BSD-2-Clause | [termux-packages/libmd](https://github.com/termux/termux-packages/tree/master/packages/libmd) |
-| libmpfr | 4.2.1-1 | LGPL-3.0+ | [termux-packages/libmpfr](https://github.com/termux/termux-packages/tree/master/packages/libmpfr) |
+| libmpfr | 4.2.2 | LGPL-3.0+ | [termux-packages/libmpfr](https://github.com/termux/termux-packages/tree/master/packages/libmpfr) |
 | libnghttp2 | 1.70.0 | MIT | [termux-packages/libnghttp2](https://github.com/termux/termux-packages/tree/master/packages/libnghttp2) |
 | libnghttp3 | 1.18.0 | MIT | [termux-packages/libnghttp3](https://github.com/termux/termux-packages/tree/master/packages/libnghttp3) |
 | libngtcp2 | 1.25.0 | MIT | [termux-packages/libngtcp2](https://github.com/termux/termux-packages/tree/master/packages/libngtcp2) |

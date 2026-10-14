@@ -367,6 +367,75 @@ for (const f of ['scripts/build-release.ps1', 'scripts/build-apk-013.ps1']) {
     broken.join(' | '))
 }
 
+// ── 3a-1. 公共库模块必须有真实消费者（0.14.8 D-6 补线）────────────────────────
+// 真因（本轮实锤）：scripts/lib/tar-extract-cache.mjs 立项于 0.14.2-fx-2 G.3（「12 条门禁各自解
+// 同一个 148MB 快照、合计 411.5 s」），134 行 + 13 单测 + 1 集成测试全绿，**消费者数为 0**——
+// 上线两个版本无人发现，因为「模块自带测试全绿」看起来与「模块在起作用」没有区别。
+//
+// 为什么现在才查出来（两个盲区叠加）：
+//   · check-patch-mirror 的 MIRROR_TOP 只断言「两仓同版」，不断言「有人用」——0 消费者的模块照样 PASS；
+//   · 唯一的「门禁被调用」断言（3a-2 / 3b）覆盖的是 GATES/RELEASE_GATES 里的**门禁脚本**，
+//     scripts/lib/** 这类**被 import 的基础设施**不在任何断言面上。
+//
+// 判据（结构性的，不是「提到过」）：scripts/lib/*.mjs 的基线名必须至少出现在一个
+//   ① 其他 scripts/*.mjs 或 scripts/**/*.mjs 的 import/from 行里；或
+//   ② 非注释代码行里点名（例：check-build-parallel-cap 断言 lib/shell.mjs 的常量）。
+// 豁免面必须**具名且带理由**（ALLOW_NO_CONSUMER），不得用模式批量放行——豁免表就是这条断言的判别力边界。
+const PUBLIC_LIB = join(ROOT, 'scripts', 'lib')
+const LIB_NO_CONSUMER_ALLOW = {
+  // 目前为空：本条断言上线时 scripts/lib 全部模块都有真实消费者（tar-extract-cache 已退役删除）。
+  // 新增条目必须写明「谁在用 / 为什么现在没有可判定的消费者」，否则等于把断言改松。
+}
+{
+  let libFiles = []
+  try {
+    libFiles = readdirSync(PUBLIC_LIB).filter((f) => f.endsWith('.mjs')).sort()
+  } catch { /* scripts/lib 缺席：由 3a 的可解析面兜底，不在此处判红 */ }
+  if (libFiles.length > 0) {
+    // 扫描面：scripts/ 全树（排除 lib 自身与 tests/，tests 是模块的测试面不是消费者面）。
+    const consumers = []
+    const collect = (dir) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue
+        const p = join(dir, entry.name)
+        if (entry.isDirectory()) { if (p !== PUBLIC_LIB && entry.name !== 'tests') collect(p); continue }
+        if (entry.isFile() && entry.name.endsWith('.mjs')) consumers.push(p)
+      }
+    }
+    collect(join(ROOT, 'scripts'))
+    const texts = consumers.map((p) => ({ p, lines: readFileSync(p, 'utf8').replace(/\r\n/g, '\n').split('\n') }))
+    const orphans = []
+    for (const f of libFiles) {
+      if (LIB_NO_CONSUMER_ALLOW[f] !== undefined) continue
+      const base = f.replace(/\.mjs$/, '')
+      // 判定：模块名必须出现在**非注释**代码行里，形如 lib/<base>.mjs。两侧真实用法各一：
+      //   import { TAR } from './lib/shell.mjs'          （import 形态）
+      //   const CAP_MODULE = 'scripts/lib/shell.mjs'     （断言形态，check-build-parallel-cap）
+      // 前置字符限定为行首 / ' " ` ( 或 /——避免把 my-lib/x.mjs 这类子串误判成消费者（松断言）。
+      const needle = 'lib/' + base + '.mjs'
+      const refHit = (line) => {
+        let i = line.indexOf(needle)
+        while (i >= 0) {
+          const prev = i === 0 ? '' : line[i - 1]
+          if (prev === '' || prev === '/' || prev === "'" || prev === '"' || prev === '`' || prev === '(') return true
+          i = line.indexOf(needle, i + 1)
+        }
+        return false
+      }
+      const hit = texts.some(({ lines }) => lines.some((l) => {
+        const t = l.trim()
+        if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*')) return false   // 注释不算消费者
+        return refHit(l)
+      }))
+      if (!hit) orphans.push(f)
+    }
+    check('scripts/lib 公共模块均有真实消费者（' + String(libFiles.length) + ' 个模块，豁免 '
+      + String(Object.keys(LIB_NO_CONSUMER_ALLOW).length) + ' 个）', orphans.length === 0,
+      '零消费者（死基础设施；要么接线，要么按退役流程删除并解除镜像面注册）: ['
+      + orphans.join(', ') + ']　处置先例（退役：删模块 + 解注册镜像面）见 docs/0.14.8-DELIVERY-PLAN-2026-10-14.md §2.2')
+  }
+}
+
 // ── 3a-2. 下沉门的接管方断言（G.3，0.14.2-fx-2）─────────────────────────────
 // 移出发布链 --run 段的门禁**必须**在其声明的 sink 里被真实调用，否则就是「防线静默消失」。
 // 这是下沉动作的安全绳：任何 releaseSink:false 项若没人接管，本断言立刻判红。
@@ -641,3 +710,4 @@ console.log('CHECK-RELEASE-GATES --run PASSED（已执行 ' + ran + '/' + RELEAS
   + '；另有 ' + RELEASE_EXCLUDED.length + ' 项已下沉、不在本段：' + RELEASE_EXCLUDED.map((g) => g.script + '->' + g.sink).join(', ') + '）')
 // 0.14.8 P1：成功路径也落盘耗时（失败路径已在 runGate 内落盘）。
 writeGateTimings('passed')
+
