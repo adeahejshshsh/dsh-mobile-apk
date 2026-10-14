@@ -204,3 +204,5 @@ PR 描述里贴**结论表**（每行一条用户动作）：
   `screen-out-of-scope`，且壳侧不得执行 `input -d`；引擎 bridge 服务面与壳侧 `VdisplayController.input`
   都有执行点门禁，工具文案或模型自行避让不构成安全证据。`virtual-only`/`all` 下仅允许已登记的
   虚拟别名；显式 target 必须对应实际注入 display，不能被 selected 屏静默替换。
+
+Settings probes read section labels after excluding injected description and chevron nodes. The visible text of a mobile category row contains both its upstream name and the adaptation's description; matching the whole text against the bare section name misses the phone-control page. This changes only the navigation probe, not the user's settings flow.
