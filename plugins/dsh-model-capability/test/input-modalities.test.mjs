@@ -123,3 +123,69 @@ test('不静默：丢弃的模态写进 skipped 供用户与日志查看', () =>
   const joined = plan.skipped.join(' | ')
   assert.ok(joined.includes('audio'), 'skipped 未提及被丢弃的 audio：' + joined)
 })
+
+// ── 2026-10-15 设备实锤：audio 在**既有条目**上时同样连坐 ────────────────────
+//
+// 上一条用例只覆盖「补丁带来 input」。真机上 audio 的来源是**补全器自己**：
+// 它从 models.dev 查到 input=[text,image,audio] 并成功写进条目一次，
+// 此后每一次补齐都被自己写的 audio 挡下（schemastery: input[2] expected text|image but got audio）。
+// 实锤：31 次 runAutoPass 全部 wrote=false reason=mutate-rejected，reasoningEfforts 一次都没写进去。
+
+test('既有条目带 audio：同样裁到合法集，且本轮 reasoningEfforts 能写入（真机自锁回归）', () => {
+  // 复刻真机条目：id/name/contextWindow 是用户声明的，input 是补全器**上一次**写进去的。
+  const existing = [{
+    id: 'mimo-v2.5',
+    name: 'MiMo 2.5',
+    contextWindow: 262144,
+    input: ['text', 'image', 'audio'],   // 补全器自写；schema 不接受 audio
+    compat: { thinkingFormat: 'mimo' },
+  }]
+  const patches = [{ id: 'mimo-v2.5', reasoningEfforts: { off: 'off', low: 'low' }, source: 'protocol-profile' }]
+  const plan = planModelPatch(existing, patches, undefined, ['text', 'image'])
+  const entry = plan.models[0]
+
+  // (1) 既有非法模态被裁掉（否则写回必被 schema 整条拒）
+  assert.deepEqual(entry.input, ['text', 'image'],
+    '既有条目的 audio 未被裁掉：写回仍会被 schema 整条拒绝')
+  // (2) 丢弃可见（不静默）
+  assert.deepEqual(plan.droppedModalities, [{ id: 'mimo-v2.5', dropped: ['audio'] }],
+    '被丢弃的既有模态未被记录')
+  assert.ok(plan.skipped.join(' | ').includes('audio'), 'skipped 未提及 audio')
+  // (3) 主目标达成：reasoningEfforts 真的写进去了
+  assert.deepEqual(entry.reasoningEfforts, { off: 'off', low: 'low' },
+    'reasoningEfforts 被既有条目的非法 input 连坐（真机 31 次 mutate-rejected 的根因）')
+  // (4) 用户声明的其它字段原样保留
+  assert.equal(entry.name, 'MiMo 2.5')
+  assert.equal(entry.contextWindow, 262144)
+  // (5) 仅裁切也算一次真实写入（否则该条裁切永远不落盘、下一轮再被挡）
+  assert.ok(plan.changes.length > 0, 'changes 为空 => mutate 不会发生，裁切与补齐都不会落盘')
+})
+
+test('既有条目只有非法模态、且本轮无其它字段：裁切仍要落盘（不得 no-change）', () => {
+  // 退化场景：用户改了无关字段触发一轮，补丁里恰好没有该模型的任何新字段。
+  // 若不把裁切计入 changes，plan.changes 为空 => 直接 return no-change => audio 永远留在条目里。
+  const existing = [{ id: 'm', input: ['audio'] }]
+  const patches = [{ id: 'm', source: 'noop' }]
+  const plan = planModelPatch(existing, patches, undefined, ['text', 'image'])
+  assert.deepEqual(plan.models[0].input, [], '非法模态未被裁')
+  assert.ok(plan.changes.length > 0, '仅裁切却 no-change：该条裁切永远写不进去')
+})
+
+test('既有条目 input 合法时零改动（不误删、不产生空写）', () => {
+  const existing = [{ id: 'm', input: ['text', 'image'] }]
+  const patches = [{ id: 'm', source: 'noop' }]
+  const plan = planModelPatch(existing, patches, undefined, ['text', 'image'])
+  assert.deepEqual(plan.models[0].input, ['text', 'image'], '合法 input 被误改')
+  assert.deepEqual(plan.droppedModalities, [], '合法 input 被误报为丢弃')
+  assert.equal(plan.changes.length, 0, '无改动却产生 changes => 会触发一次空 mutate')
+})
+
+test('既有条目 input 非法但 schema 结构不认识：保守放行（不凭空裁）', () => {
+  const existing = [{ id: 'm', input: ['text', 'audio'] }]
+  const patches = [{ id: 'm', reasoningEfforts: { low: 'low' }, source: 'x' }]
+  const plan = planModelPatch(existing, patches, undefined, undefined)
+  assert.deepEqual(plan.models[0].input, ['text', 'audio'],
+    'allowed 缺席时不该裁（结构不认识就保守放行，交给写回按原方式失败并留诊断）')
+  assert.deepEqual(plan.droppedModalities, [])
+  assert.deepEqual(plan.models[0].reasoningEfforts, { low: 'low' }, '其它字段应照常写入')
+})

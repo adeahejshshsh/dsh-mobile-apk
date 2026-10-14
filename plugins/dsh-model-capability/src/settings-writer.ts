@@ -247,6 +247,28 @@ export function planModelPatch(
     const source = patch.source ?? ''
     let changed = false
 
+    // 既有条目的 input 同样要裁：写回是**整条 models 数组一次 mutate**，schema 校验失败会整条被拒，
+    // 于是本次要写的 reasoningEfforts 也一起写不进去（连坐）。
+    //
+    // 为什么这一支不能少（设备实锤 2026-10-15）：补全器自己会把 models.dev 查到的 input 写进条目
+    // （models.dev 里 mimo-v2.5 = ["text","image","audio"]），而 schemastery 的 input 只接受 text|image。
+    // 于是一条自写的 audio 从此卡死该模型的所有后续补齐——31 次 runAutoPass 全部
+    // wrote=false reason=mutate-rejected，报错恒为 models[0].input[2] expected "text" | "image" but got "audio"，
+    // 而「思考档位」这条主目标一次都没写进去。
+    //
+    // 与下方补丁路径的裁切同源同函数；schema 结构不认识时 filterInputModalities 原样保留（不凭空裁）。
+    if (Array.isArray(next.input)) {
+      const existing = next.input.filter((item): item is string => typeof item === 'string')
+      const { kept, dropped } = filterInputModalities(existing, allowedInput)
+      if (dropped.length > 0) {
+        skipped.push(`${patch.id}: 既有声明的模态 ${dropped.join('/')} 不被设置 schema 接受（已丢弃；其余字段照常写入）`)
+        droppedModalities.push({ id: patch.id, dropped })
+        next.input = kept
+        changed = true
+        changes.push(`${patch.id}: 裁掉既有非法模态 ${dropped.join('/')}`)
+      }
+    }
+
     if (patch.reasoningEfforts && canWrite(stamps, patch.id, 'reasoningEfforts', next.reasoningEfforts, patch.reasoningEfforts)) {
       next.reasoningEfforts = patch.reasoningEfforts
       changed = true
