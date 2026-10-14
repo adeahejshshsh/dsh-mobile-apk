@@ -1523,6 +1523,8 @@ flowchart TD
 
 #### S01 引擎侧注入层（三个子仓）
 
+Touch reorder: `sidebar-reorder.ts` flushes each synthetic React drag phase. On multitouch, cancellation, detach, or out-of-list release, a source-row drop takes the upstream source-id no-op before dragend; dragend alone can commit a stale hover. DataTransfer types must also satisfy the global file-drop listener. The ReactDOM declaration is covered in the source ledger below. Browser-stage lease timers use numeric window timer handles.
+
 
 > 权威源在协调仓同名路径，`dsh-mobile-apk/<同名目录>` 是逐字节镜像（本轮三个子仓 `src`/`lib`/`scripts` 均一致，仅 `dsh-shell-termux/README.md` 有 6 行行尾差异，见漂移行）。行号按 apk 仓副本读取。
 
@@ -2225,6 +2227,7 @@ glob:plugins/dsh-model-capability/test/*.mjs
 dsh-client-ui-responsive/src/index.ts
 dsh-client-ui-responsive/src/invariant.ts
 dsh-client-ui-responsive/src/css-modules.d.ts
+dsh-client-ui-responsive/src/react-dom.d.ts
 dsh-client-ui-responsive/src/client/snapshot-panels-observer.ts
 dsh-client-ui-responsive/src/client/snapshot-panels.css.ts
 glob:dsh-client-ui-responsive/src/client/*.ts
