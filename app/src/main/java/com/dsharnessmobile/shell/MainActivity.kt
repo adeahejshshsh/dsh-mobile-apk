@@ -875,7 +875,7 @@ class MainActivity : ComponentActivity() {
     if (debuggable) android.webkit.WebView.setWebContentsDebuggingEnabled(true)
     // 版本敏感设置全部走 WebViewShim（单面真源）；引擎页吃共享 baseline 档。
     // 0.13.3：textZoom 持久化退役（D6 收益省略）——上游 ui-theme fontSize 原生管内容字号。
-    WebViewShim.applyBaseline(webView.settings)
+    WebViewShim.applyBaseline(webView.settings, appOwnsTheme = true)
     webView.webViewClient = object : WebViewClient() {
       override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         val url = request.url.toString()
