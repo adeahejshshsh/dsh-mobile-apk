@@ -232,3 +232,13 @@ gr12-cmd（armv7l 需求）、cmyfqwq（覆盖安装兼容反馈）。
 <img src="qrcode/qqcommunity-1.png" alt="dsh-mobile 用户群二维码（群号 1109493992）" width="320">
 
 欢迎加入 dsh-mobile 用户群反馈：使用问题、机型兼容、功能建议都可以在群里直接提。
+
+
+## 支持我们
+
+请在个人生活有余力且经济自主的前提下进行适当的自愿赞助
+
+微信赞赏与支付宝收款码：
+
+<img src="qrcode/support-wechat.png" alt="微信赞赏码" width="320">
+<img src="qrcode/support-alipay.png" alt="支付宝收款码" width="320">

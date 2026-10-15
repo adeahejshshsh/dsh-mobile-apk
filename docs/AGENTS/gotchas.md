@@ -1824,7 +1824,11 @@ EngineBootContinuationTest用latch驱动真实观察函数：winner持CAS但无�
 
 本次恢复来源：`origin/main` 的该文件（1792 行，比被毁版本更完整），307/308 条按 LF 追加。
 
+309. **已合入源仓的剪贴板修复必须同步 APK 镜像（2026-10-15）**：host-web-compat #18 已修复 WebView 异步剪贴板拒绝后静默退出的问题，但 APK 镜像仍是 0.1.13，云端会继续注入旧实现。独立同步 0392ef0 的五个文件及 0.1.14 版本，保留原生 writeText → Android 桥 → execCommand 的回落链；三条均失败时给回执。新增 smoke 同时覆盖旧行为负控、精确文本、无桥回落和全部失败。主题归属变更另外交付，避免混入本镜像 PR。
+
 
 310. **WebView 算法深色会把手动浅色再次压黑，偏好按钮却仍正确**：
 
 系统深色下选择浅色，CDP 显示 `color-scheme: light`、body 无 `data-ds-dark-theme`、computed background 为白色，但设备截图仍是黑底。原因是 baseline 对引擎 UI 开启了 `algorithmicDarkeningAllowed=true`（旧 provider 为 `FORCE_DARK_AUTO`），与上游主题服务形成二次配色。不能把截图发黑直接归因于设置持久化回滚。引擎页声明 `appOwnsTheme=true`，新旧 provider 都关闭算法改色；系统深浅仍由 ThemeBridge 交给上游主题服务。隔离浏览器保留既有策略。验收要同时比对选中偏好、DOM 状态与真实截图。
+
+同轮还发现 early bridge 在 UI 挂载后继续写 html 的 color-scheme，系统切换会让手动偏好与 UA scheme 分裂。桥现在只在空 root 启动期写底色，挂载后只报告 MQL，由 presenter 独占配色；删除守卫的双模式反证必须判红。
