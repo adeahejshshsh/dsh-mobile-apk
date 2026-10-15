@@ -100,10 +100,11 @@ internal object WebViewShim {
    *    无诊断层」（缓存页里没有页面看门狗；荣耀/MagicUI 实测类问题）。
    *  - mediaPlaybackRequiresUserGesture 显式钉 true：值与平台默认一致，但钉死它
    *    才能免疫厂商 ROM 改默认值的漂移——这正是 shim 存在的理由。
+   *  - appOwnsTheme：引擎 UI 通过主题服务自行配色，禁止 WebView 再次算法改色。
    *  - textZoom 故意不设：0.13.3 起持久化退役（D6 收益省略），上游 ui-theme 的
    *    fontSize 原生管内容字号；新增调用点**不要**在本函数外自行加回。
    */
-  fun applyBaseline(s: WebSettings) {
+  fun applyBaseline(s: WebSettings, appOwnsTheme: Boolean = false) {
     s.javaScriptEnabled = true
     s.domStorageEnabled = true
     // file 方案内容访问全关；file:///android_asset 与 /android_res 不受此限，
@@ -112,7 +113,7 @@ internal object WebViewShim {
     s.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
     s.cacheMode = WebSettings.LOAD_NO_CACHE
     s.mediaPlaybackRequiresUserGesture = true
-    applyFollowSystemDark(s)
+    applyFollowSystemDark(s, appOwnsTheme)
     applyOffscreenPreraster(s)
   }
 
@@ -138,8 +139,9 @@ internal object WebViewShim {
   }
 
   /**
-   * prefers-color-scheme 跟随系统深色（某些厂商 WebView 默认不跟随；
-   * 「跟随系统」主题依赖 media query 如实反映系统深浅）。
+   * 外部页面保留系统算法深色；引擎 UI 自己拥有浅色/深色/跟随系统主题，
+   * 必须禁用算法改色，否则系统深色下 CSS 白底会被再次压暗，手动浅色看起来仍是黑色。
+   * 引擎的系统偏好由 ThemeBridge 提供，不依赖算法改色。
    *
    * 两层按 **provider 能力**择优，不按 SDK_INT 猜：
    *  1. ALGORITHMIC_DARKENING（webkit 1.5+/API 33 推荐路径）：算法级深色，
@@ -148,16 +150,19 @@ internal object WebViewShim {
    *     于是 **API 26–28 + 新内核** 也能跟随（旧实现 `SDK_INT>=29` 直接跳过）；
    *  3. 两路都不支持：provider 过旧，留默认（不假装跟随）。
    */
-  private fun applyFollowSystemDark(s: WebSettings) {
+  private fun applyFollowSystemDark(s: WebSettings, appOwnsTheme: Boolean) {
     // 包一层：provider 更新窗口期内「特性门过、setter 抛」的竞态如实放弃（留默认），
     // 不把一个渲染偏好变成崩溃。
     try {
       when {
         supports(WebViewFeature.ALGORITHMIC_DARKENING) ->
-          WebSettingsCompat.setAlgorithmicDarkeningAllowed(s, true)
+          WebSettingsCompat.setAlgorithmicDarkeningAllowed(s, !appOwnsTheme)
         supports(WebViewFeature.FORCE_DARK) ->
           @Suppress("DEPRECATION")
-          WebSettingsCompat.setForceDark(s, WebSettingsCompat.FORCE_DARK_AUTO)
+          WebSettingsCompat.setForceDark(
+            s,
+            if (appOwnsTheme) WebSettingsCompat.FORCE_DARK_OFF else WebSettingsCompat.FORCE_DARK_AUTO,
+          )
       }
     } catch (_: Throwable) {
     }

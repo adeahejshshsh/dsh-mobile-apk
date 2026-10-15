@@ -1823,3 +1823,8 @@ EngineBootContinuationTest用latch驱动真实观察函数：winner持CAS但无�
 - 大文件改动一律避免「read 全文 → write 全文」这一组合。
 
 本次恢复来源：`origin/main` 的该文件（1792 行，比被毁版本更完整），307/308 条按 LF 追加。
+
+
+310. **WebView 算法深色会把手动浅色再次压黑，偏好按钮却仍正确**：
+
+系统深色下选择浅色，CDP 显示 `color-scheme: light`、body 无 `data-ds-dark-theme`、computed background 为白色，但设备截图仍是黑底。原因是 baseline 对引擎 UI 开启了 `algorithmicDarkeningAllowed=true`（旧 provider 为 `FORCE_DARK_AUTO`），与上游主题服务形成二次配色。不能把截图发黑直接归因于设置持久化回滚。引擎页声明 `appOwnsTheme=true`，新旧 provider 都关闭算法改色；系统深浅仍由 ThemeBridge 交给上游主题服务。隔离浏览器保留既有策略。验收要同时比对选中偏好、DOM 状态与真实截图。

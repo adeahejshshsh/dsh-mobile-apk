@@ -111,6 +111,17 @@ class WebViewShimTest {
   }
 
   @Test
+  fun authoredEngineThemeDisablesAlgorithmicRecoloringWithoutChangingExternalPages() {
+    val main = codeOnly(source("MainActivity.kt"))
+    val shim = codeOnly(source("WebViewShim.kt"))
+    assertTrue("引擎 UI 必须声明主题归自己管理", main.contains("WebViewShim.applyBaseline(webView.settings, appOwnsTheme = true)"))
+    assertTrue("外部页面默认继续允许算法深色", shim.contains("appOwnsTheme: Boolean = false"))
+    assertTrue("新版 provider 必须按主题所有权关闭算法深色", shim.contains("setAlgorithmicDarkeningAllowed(s, !appOwnsTheme)"))
+    assertTrue("旧版 provider 必须在引擎 UI 上关闭 Force Dark", shim.contains("if (appOwnsTheme) WebSettingsCompat.FORCE_DARK_OFF else WebSettingsCompat.FORCE_DARK_AUTO"))
+    assertTrue("隔离浏览器仍用默认策略", codeOnly(source("BrowserHost.kt")).contains("WebViewShim.applyBaseline(this)"))
+  }
+
+  @Test
   fun diagnosticsReadTheProviderThroughTheShim() {
     val engine = codeOnly(source("EngineManager.kt"))
     assertTrue("info.txt 的版本字段必须经 shim 取值", engine.contains("WebViewShim.providerVersionName()"))
