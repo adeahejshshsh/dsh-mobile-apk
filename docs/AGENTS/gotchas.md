@@ -1824,6 +1824,8 @@ EngineBootContinuationTest用latch驱动真实观察函数：winner持CAS但无�
 
 本次恢复来源：`origin/main` 的该文件（1792 行，比被毁版本更完整），307/308 条按 LF 追加。
 
+309. **已合入源仓的剪贴板修复必须同步 APK 镜像（2026-10-15）**：host-web-compat #18 已修复 WebView 异步剪贴板拒绝后静默退出的问题，但 APK 镜像仍是 0.1.13，云端会继续注入旧实现。独立同步 0392ef0 的五个文件及 0.1.14 版本，保留原生 writeText → Android 桥 → execCommand 的回落链；三条均失败时给回执。新增 smoke 同时覆盖旧行为负控、精确文本、无桥回落和全部失败。主题归属变更另外交付，避免混入本镜像 PR。
+
 311. **宽表格只在 hover 后启用横向滚动，会让手机首触点被侧栏接管（2026-10-15）**：
 
 现象：四列以上 Markdown 表格的说明被挤成高行，横滑时误开右栏。上游 `.md-table-wide` 静止态为 `overflow-x:hidden`，侧栏仲裁只识别 `auto/scroll`，触屏没有鼠标 hover；同时单元格 `30vw` 上限过窄。移动端适配以稳定 hook 常驻 `overflow-x:auto`，表格及其后代预设 `touch-action:auto`，按内容分配列宽，保留 100px 最小内容宽和不超过 240px 的内容上限，不缩字号。普通小表格与桌面宽屏鼠标模式保留上游行为。

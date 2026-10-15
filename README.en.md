@@ -266,3 +266,13 @@ expansion. Development and maintenance conventions live in each repository's `AG
 
 Join the dsh-mobile user group for feedback: usage questions, device compatibility and feature
 requests are all welcome there.
+
+
+## Support us / 支持我们
+
+请在个人生活有余力且经济自主的前提下进行适当的自愿赞助
+
+Please consider a modest, voluntary donation only if you have room in your personal budget and are financially independent.
+
+<img src="qrcode/support-wechat.png" alt="WeChat appreciation code" width="320">
+<img src="qrcode/support-alipay.png" alt="Alipay payment code" width="320">
