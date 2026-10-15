@@ -107,14 +107,14 @@ class ExternalLinksTest {
   // ── 与 ShizukuTransport 的口径同源 ────────────────────────────
 
   /**
-   * 「装没装」的包名两处必须一致。
+   * 在场判定必须「共享包名表 + binder 面」，不得退回「单个官方包名否决」。
    *
-   * [ShizukuTransport.installed] 是事实判定（页面据此决定「打开 Shizuku」是否可点），
-   * [ExternalLinks.openShizukuManager] 是拉起动作；两处写死同一个包名字面量，
-   * 单边改动不会有任何编译错误——只能用源码契约钉住。
+   * 0.14.8 修法：Shizuku 存在分支实现（Stellar 等，管理器包名不同、经兼容层提供同一套 API），
+   * 只查官方包名会把可用分支判成「未检测到 Shizuku」。本契约钉住两点：包名取自
+   * [ExternalLinks.SHIZUKU_MANAGER_PACKAGES]（单一真源）；判据保留 binder 面——分支实现只满足这一面。
    */
   @Test
-  fun installedProbeUsesTheSamePackageName() {
+  fun installedProbeUsesTheSharedManagerTableAndBinder() {
     val source = listOf(
       File("src/main/java/com/dsharnessmobile/shell/ShizukuTransport.kt"),
       File("app/src/main/java/com/dsharnessmobile/shell/ShizukuTransport.kt"),
@@ -122,8 +122,29 @@ class ExternalLinksTest {
       ?: throw AssertionError("找不到 ShizukuTransport.kt（工作目录 = " + File(".").absolutePath + "）")
     val text = source.readText()
     assertTrue(
-      "ShizukuTransport 的 installed 判定必须用同一个包名 " + ExternalLinks.SHIZUKU_PACKAGE,
-      text.contains("\"" + ExternalLinks.SHIZUKU_PACKAGE + "\""),
+      "ShizukuTransport 的管理器包名必须取自 ExternalLinks.SHIZUKU_MANAGER_PACKAGES（单一真源）",
+      text.contains("ExternalLinks.SHIZUKU_MANAGER_PACKAGES"),
+    )
+    assertTrue(
+      "能力判据不得丢掉 binder 面（Shizuku.pingBinder()）——分支实现只满足这一面",
+      text.contains("Shizuku.pingBinder()"),
+    )
+    assertTrue(
+      "能力门不得再按 installed 短路（那就是「没装官方包名 = 用不了 Shizuku」的硬性限制）",
+      !text.contains("if (!out.optBoolean(\"installed\"))"),
+    )
+    assertEquals(
+      "官方 Shizuku 管理器包名",
+      "moe.shizuku.privileged.api",
+      ExternalLinks.SHIZUKU_PACKAGE,
+    )
+    assertTrue(
+      "官方包必须在表内",
+      ExternalLinks.SHIZUKU_MANAGER_PACKAGES.contains(ExternalLinks.SHIZUKU_PACKAGE),
+    )
+    assertTrue(
+      "分支实现（Stellar）必须在表内",
+      ExternalLinks.SHIZUKU_MANAGER_PACKAGES.contains(ExternalLinks.STELLAR_PACKAGE),
     )
   }
 }

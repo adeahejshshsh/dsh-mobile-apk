@@ -59,7 +59,7 @@
       "id": "shizuku-privileged-channel",
       "holder": "壳侧（ShizukuTransport / ShizukuUserService）+ 插件 dsh-android-bridge",
       "writePath": "dsh-mobile-apk/app/src/main/java/com/dsharnessmobile/shell/ShizukuTransport.kt",
-      "sourceOfTruth": "Shizuku 管理器授权 + UserService 绑定（live；授权只由 Shizuku 管理器写，应用不自授）",
+      "sourceOfTruth": "Shizuku API binder 可达（官方 Shizuku 或分支兼容实现，如 Stellar——0.14.8 起官方包名不再是能力判据，管理器包名只用于引导）+ UserService 绑定（live；授权只由管理器写，应用不自授）",
       "syncPath": "控制队列 caps.shizuku 实时上报（ControlCarrier，5s TTL）；引擎侧 shizukuReady() 现读 caps，不做启动期快照（0.14.0：内置 adb 三条门随 AdbState 退役）",
       "evidence": {
         "kind": "grep",

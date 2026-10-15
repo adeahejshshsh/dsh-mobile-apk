@@ -35,11 +35,13 @@ object ShizukuProbe {
     return cachedClass
   }
 
+  // 0.14.8：与 ShizukuTransport 同源——官方与分支实现（Stellar 等）的管理器包都算在场，
+  // 不再把「官方包名不存在」当成「Shizuku 不存在」。
   @Suppress("DEPRECATION") // getPackageInfo(String, Int) 在 API 33 起废弃，但 minSdk 26 仍需该重载
-  private fun installed(context: Context): Boolean = runCatching {
-    context.packageManager.getPackageInfo("moe.shizuku.privileged.api", 0)
-    true
-  }.getOrDefault(false)
+  private fun installed(context: Context): Boolean =
+    ExternalLinks.SHIZUKU_MANAGER_PACKAGES.any { pkg ->
+      runCatching { context.packageManager.getPackageInfo(pkg, 0) }.isSuccess
+    }
 
   /**
    * 五态探测，返回可直接下发给模型/设置页的 JSON。
@@ -60,8 +62,8 @@ object ShizukuProbe {
 
     if (!isInstalled) {
       return out.put("ok", false).put("code", "shizuku-absent")
-        .put("guidance", "未检测到 Shizuku。虚拟屏需要 Shizuku 以 shell 身份建屏/拉应用；"
-          + "不安装不影响真实屏控制。安装见 https://shizuku.rikka.app/download/。")
+        .put("guidance", "未检测到 Shizuku 及其兼容实现（如 Stellar）。虚拟屏需要其中之一以 shell 身份"
+          + "建屏/拉应用；不安装不影响真实屏控制。官方安装见 https://shizuku.rikka.app/download/。")
     }
     if (cls == null) {
       return out.put("ok", false).put("code", "shizuku-absent")

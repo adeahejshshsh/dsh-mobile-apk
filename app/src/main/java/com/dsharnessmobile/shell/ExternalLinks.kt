@@ -31,13 +31,31 @@ object ExternalLinks {
   const val SHIZUKU_TUTORIAL = "shizuku-tutorial"
 
   /**
-   * Shizuku 管理器包名。
+   * Shizuku 管理器包名（官方）。
    *
-   * 与 [ShizukuTransport] 的 `installed()` 判定必须同源（那份是「装没装」的事实判定），
-   * 否则会出现「页面说已安装、通道说不存在」的分裂。单侧改动由
-   * `ExternalLinksTest.installedProbeUsesTheSamePackageName` 的源码契约守着。
+   * 与 [ShizukuTransport] 的在场判定同源：那张判据自 0.14.8 起**不再以本包名单独否决**
+   * （见 [SHIZUKU_MANAGER_PACKAGES]），本常量只表达「官方管理器是谁」。单侧改动由
+   * `ExternalLinksTest.installedProbeUsesTheSharedManagerTable` 的源码契约守着。
    */
   const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
+
+  /**
+   * Stellar 管理器包名（Shizuku 的深度定制分支，见 https://github.com/roro2239/Stellar）。
+   *
+   * 它经兼容层提供同一套 Shizuku API（pingBinder/getVersion/getUid/checkSelfPermission/
+   * addUserService），只是**不安装官方包名的 APK**——把官方包名当成能力事实就会把它误判成
+   * 「未检测到 Shizuku」。
+   */
+  const val STELLAR_PACKAGE = "roro.stellar.manager"
+
+  /**
+   * 已知的 Shizuku 兼容管理器包名（表内顺序即 [openShizukuManager] 的拉起顺序）。
+   *
+   * **本表只用于「把用户送到管理器界面」**，不是能力判据：能力判据是 Shizuku API binder 是否
+   * 可达（[ShizukuTransport.installed]）。分支实现（Stellar 等）与官方共存时互不覆盖，
+   * 逐个尝试拉起即可，不必也不应假定只有官方一种实现。
+   */
+  val SHIZUKU_MANAGER_PACKAGES: List<String> = listOf(SHIZUKU_PACKAGE, STELLAR_PACKAGE)
 
   /**
    * key → 登记 URL。**唯一**外链真源；只许 https（明文 http 会被 [classify] 拒收）。
@@ -81,9 +99,13 @@ object ExternalLinks {
    * 所以这里只负责把用户送到那个界面，不做任何隐式安装/授权。
    */
   fun openShizukuManager(activity: Activity): String {
-    val intent = activity.packageManager.getLaunchIntentForPackage(SHIZUKU_PACKAGE)
-      ?: return answer(false, "not-installed")
-    return launch(activity, intent)
+    // 逐个候选包尝试（官方 + 分支实现）：装哪个送哪个。全都不在场才如实报 not-installed
+    // ——不假装能拉起一个不存在的界面。
+    for (pkg in SHIZUKU_MANAGER_PACKAGES) {
+      val intent = activity.packageManager.getLaunchIntentForPackage(pkg) ?: continue
+      return launch(activity, intent)
+    }
+    return answer(false, "not-installed")
   }
 
   private fun launch(activity: Activity, intent: Intent): String {

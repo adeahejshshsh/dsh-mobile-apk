@@ -192,8 +192,11 @@ object ShizukuTransport {
     // 看门狗先跑：它是**读路径**上唯一的自愈点（设置页与面板每 2s 轮询 status）。
     // 不放在这里的话，一次不回调的 bind 会让状态永远停在「正在建立」，没有任何人会发现。
     reapStaleBind()
-    val out = JSONObject().put("installed", installed(context))
-    val running = runCatching { Shizuku.pingBinder() }.getOrDefault(false)
+    // 能力判据（0.14.8）：**只看 binder 是否连上**——包名不参与放行。分支实现（Stellar 等，
+    // 管理器包名不同、经兼容层提供同一套 API）因此在 binder 一连上时即可用，不必先装官方 APK。
+    val running = binderAlive()
+    val managerPresent = managerInstalled(context)
+    val out = JSONObject().put("installed", managerPresent || running)
     out.put("running", running)
     out.put("granted", false)
     out.put("bound", service?.asBinder()?.pingBinder() == true)
@@ -205,13 +208,16 @@ object ShizukuTransport {
     out.put("bindAgeMs", bindState.attemptAgeMs(SystemClock.elapsedRealtime()))
     out.put("lastError", bindState.lastError)
 
-    if (!out.optBoolean("installed")) {
-      return out.put("ok", false).put("code", "shizuku-absent")
-        .put("guidance", "未检测到 Shizuku；虚拟屏需要用户安装、启动并授权 Shizuku。")
-    }
     if (!running) {
-      return out.put("ok", false).put("code", "shizuku-not-running")
-        .put("guidance", "Shizuku 已安装但服务未运行。非 root 设备可通过 USB/有线 ADB 或无线调试启动它；重启设备后需再次启动。")
+      // 没连上才分流文案：装了哪个管理器（去启动 / 去授权）还是都没装（去下载）。这是**引导**分流，
+      // 不是能力门——binder 一旦连上就走下面的就绪路径；包名不在表内的分支同样不受影响。
+      return if (managerPresent) {
+        out.put("ok", false).put("code", "shizuku-not-running")
+          .put("guidance", "Shizuku 已安装但服务未运行。非 root 设备可通过 USB/有线 ADB 或无线调试启动它；重启设备后需再次启动。")
+      } else {
+        out.put("ok", false).put("code", "shizuku-absent")
+          .put("guidance", "未检测到 Shizuku 及其兼容实现；虚拟屏需要用户安装、启动并授权其中之一。")
+      }
     }
 
     val version = runCatching { Shizuku.getVersion() }.getOrDefault(-1)
@@ -263,7 +269,8 @@ object ShizukuTransport {
     // status() 内部先跑看门狗：若上一次绑定已成僵尸，这里读到的 binding 已是 false，
     // 下面的守卫不会再把它挡回去——「一次不回调的 bind 永久关掉重试」的闭环由此打开。
     val current = status(app)
-    if (!current.optBoolean("installed") || !current.optBoolean("running")) return
+    // 能力门只看 binder（0.14.8）：包名不再参与放行。
+    if (!current.optBoolean("running")) return
     if (!current.optBoolean("granted")) return
     if (current.optBoolean("bound")) return
     // 已有绑定在飞（binding=true）时不重复发起——Shizuku.bindUserService 幂等但没必要抖动。
@@ -282,7 +289,8 @@ object ShizukuTransport {
     ignoreGranted: Boolean = false,
   ): JSONObject {
     val before = status(context)
-    if (!before.optBoolean("installed") || !before.optBoolean("running")) return before
+    // 能力门只看 binder（0.14.8）：包名不再参与放行（旧式 (!installed || !running) 与 !running 等价）。
+    if (!before.optBoolean("running")) return before
     // ignoreGranted=true 只给**探测面**用（复审第 1 点）：`checkSelfPermission()` 在本机恒报 denied，
     // 若在这里就返回，探测就永远没真绑过，判据只能退回那个已证明不可靠的信号 ⇒ 误清隔离的风险。
     if (!ignoreGranted && !before.optBoolean("granted")) {
@@ -1095,10 +1103,26 @@ object ShizukuTransport {
     .put("ok", false).put("code", "shizuku-user-service-not-bound")
     .put("guidance", "Shizuku shell 通道未就绪；请在设置页「手机控制」查看状态与引导。")
 
+  /**
+   * 「Shizuku 兼容服务在场」的事实判定（0.14.8）。
+   *
+   * 事实面 = **任一已知管理器包在场**（官方 Shizuku / 分支实现如 Stellar）**或** Shizuku API
+   * binder 已收到并 ping 通。旧实现只查官方包名 `moe.shizuku.privileged.api` 并据此短路，
+   * 分支实现（管理器包不同、经兼容层提供同一套 API）即使 binder 活着也被判成
+   * 「未检测到 Shizuku」——用户可见现象就是「只认官方 Shizuku，不认分支」。
+   *
+   * 包名表只用于引导（见 [ExternalLinks.SHIZUKU_MANAGER_PACKAGES]）；能力判据以 binder 为准。
+   */
+  private fun installed(context: Context): Boolean = managerInstalled(context) || binderAlive()
+
+  /** 已知管理器包（官方 + 兼容分支）装了任一：只作引导/兜底事实，不单独否决能力。 */
   @Suppress("DEPRECATION")
-  private fun installed(context: Context): Boolean = runCatching {
-    context.packageManager.getPackageInfo("moe.shizuku.privileged.api", 0)
-    true
-  }.getOrDefault(false)
+  private fun managerInstalled(context: Context): Boolean =
+    ExternalLinks.SHIZUKU_MANAGER_PACKAGES.any { pkg ->
+      runCatching { context.packageManager.getPackageInfo(pkg, 0) }.isSuccess
+    }
+
+  /** Shizuku API binder 是否已收到且存活（官方与兼容实现同一条判据，不猜实现方是谁）。 */
+  private fun binderAlive(): Boolean = runCatching { Shizuku.pingBinder() }.getOrDefault(false)
 }
 

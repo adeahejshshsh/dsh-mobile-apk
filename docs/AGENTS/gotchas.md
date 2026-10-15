@@ -1823,3 +1823,28 @@ EngineBootContinuationTest用latch驱动真实观察函数：winner持CAS但无�
 - 大文件改动一律避免「read 全文 → write 全文」这一组合。
 
 本次恢复来源：`origin/main` 的该文件（1792 行，比被毁版本更完整），307/308 条按 LF 追加。
+
+309. **把「官方管理器包名」当成 Shizuku 能力的唯一事实 = 把分支实现（Stellar 等）判成「未检测到」（源码实证 + 用户报告）**：
+
+现象：用户装的是 Shizuku 的深度定制分支 Stellar（管理器包 `roro.stellar.manager`，内置 Shizuku 兼容层），
+Stellar 在跑、兼容层正常，本应用却在设置页与工具面一律报 `shizuku-absent`「未检测到 Shizuku」，
+虚拟屏与特权 shell 全不可用；换成官方 Shizuku 立刻可用。用户口径：「只认 Shizuku，不认分支」。
+
+真因：`ShizukuTransport.installed()` 用 `getPackageInfo("moe.shizuku.privileged.api")` 当事实判定，
+且 `status()` 在 `installed == false` 时**先短路返回** `shizuku-absent`——同一函数第 196 行已经算出来的
+`Shizuku.pingBinder()`（唯一能证明服务真的在跑的面）根本没机会被读到；`kickBind()`/`ensureBound()` 的守卫
+同样按 `installed` 早退，连后台补绑都不会发生。而 Shizuku 分支实现经兼容层提供同一套 API
+（pingBinder/getVersion/getUid/checkSelfPermission/requestPermission/addUserService），只是**不安装那个包名的 APK**；
+`Shizuku.requestPermission()` 走 binder（api 13.1.5 `Shizuku.java`），binder 由服务端经
+`moe.shizuku.api.action.BINDER_RECEIVED` 投递给客户端的 `ShizukuProvider`——两步都不依赖官方包名。
+
+修法（0.14.8）：**能力门只看 `Shizuku.pingBinder()`（binder 连上即可用）**，包名彻底退出判据；
+包名表（`ExternalLinks.SHIZUKU_MANAGER_PACKAGES`：官方 + `roro.stellar.manager`）只剩两个用途——
+「把用户送到哪个管理器」（`openShizukuManager` 逐包尝试拉起）与「没连上时分流
+`shizuku-absent` / `shizuku-not-running` 文案」。`ShizukuProbe` 同源。
+
+判据（可判红）：`ExternalLinksTest.installedProbeUsesTheSharedManagerTableAndBinder`——
+把判据改回官方包名裸查询、或删掉 binder 面，用例必红。
+
+教训：**「某个包名装没装」是引导事实，不是能力事实**。能力判据要落在协议面（binder / 兼容 API 可达）上，
+否则每来一个兼容实现或分支都要在代码里再登记一次，而登记永远滞后于分支的出现。
