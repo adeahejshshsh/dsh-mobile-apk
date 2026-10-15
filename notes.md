@@ -18,7 +18,7 @@
 - 组合运行时 12/12 CDP 断言通过：手动浅/深色均跨 OS 明暗保持选中偏好、scheme、body 色一致；system 正常跟随；设置往返与应用进程重启后持久化正确。
 - 横屏 1067×600、竖屏 600×1067 均有真实 ADB 点选、截图和人眼核对，浅色确为白底、深色确为深色。恢复原 app 跟随系统、night yes、auto1/user0与 rotation free。
 - 本证据覆盖真实新壳 APK 与 guard 热推组合，不代表最终发布 APK 已验收；双 ABI/真机发布验收未做，本轮不发版。
-- 证据总索引：`/mnt/d/coding/table-gesture-evidence/THEME-ACCEPTANCE.md`。最终完整 host 镜像及其哈希将在独立 clipboard 前置合并后追加。
+- 证据总索引：`/mnt/d/coding/table-gesture-evidence/THEME-ACCEPTANCE.md`。最终完整镜像见下节。
 
 ## 完整镜像收口
 
