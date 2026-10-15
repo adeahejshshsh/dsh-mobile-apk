@@ -1823,3 +1823,5 @@ EngineBootContinuationTest用latch驱动真实观察函数：winner持CAS但无�
 - 大文件改动一律避免「read 全文 → write 全文」这一组合。
 
 本次恢复来源：`origin/main` 的该文件（1792 行，比被毁版本更完整），307/308 条按 LF 追加。
+
+309. **已合入源仓的剪贴板修复必须同步 APK 镜像（2026-10-15）**：host-web-compat #18 已修复 WebView 异步剪贴板拒绝后静默退出的问题，但 APK 镜像仍是 0.1.13，云端会继续注入旧实现。独立同步 0392ef0 的五个文件及 0.1.14 版本，保留原生 writeText → Android 桥 → execCommand 的回落链；三条均失败时给回执。新增 smoke 同时覆盖旧行为负控、精确文本、无桥回落和全部失败。主题归属变更另外交付，避免混入本镜像 PR。
