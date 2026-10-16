@@ -47,9 +47,21 @@ internal object LinuxAssetIO {
   const val CODE_URL_REJECTED = "linux-asset-url-rejected"
   const val CODE_DESTINATION_ESCAPE = "linux-asset-destination-escape"
   const val CODE_UNSAFE_ARCHIVE = "linux-asset-unsafe-archive"
+  const val CODE_SPEC_INVALID = "linux-asset-spec-invalid"
   const val CODE_DIGEST_MISMATCH = "linux-asset-digest-mismatch"
   const val CODE_SIZE_MISMATCH = "linux-asset-size-mismatch"
   const val CODE_DOWNLOAD_FAILED = "linux-asset-download-failed"
+
+  /**
+   * 清单里的字面量不合规（摘要是路径段的来源，必须先于**任何**文件系统使用判定）。
+   *
+   * 摘要在宿主侧被当成**路径段**使用（暂存目录按摘要命名）。没有格式校验时
+   * `sha256 = "../../../app_state"` 会让 [SnapshotFs.deletePath]（无包含关系检查的递归删除）
+   * 删掉环境根**之外**的目录。格式口径与上游 bootstrap 自己的校验器逐字一致（`/^[a-f0-9]{64}$/`）。
+   * `@JavascriptInterface` 是页面可直达的公开边界，必须自己校验入参，不能假定调用方已校验。
+   */
+  val SHA256_PATTERN = Regex("^[a-f0-9]{64}$")
+
 
   /** 允许的来源主机：本仓 Releases 直连 + GitHub 资产 CDN（重定向落点），逐跳校验。 */
   val ALLOWED_HOSTS = setOf(
@@ -124,6 +136,24 @@ internal object LinuxAssetIO {
     return if (inside) target else null
   }
 
+  /**
+   * 清单里**来自调用方**的字面量判据（纯函数）：摘要必须是 64 位小写十六进制，体量必须是非负且
+   * 不超过兜底上限的整数。
+   *
+   * 这一层是**路径安全的前置条件**，不是可选校验：摘要随后会被拼进路径并交给递归删除，
+   * 所以任何在它之前使用该字符串的文件系统动作都是缺陷。调用点：[LinuxAssetPrepare.start]
+   * （起线程/推导路径/删除之前）与 [download]（防调用方绕过）。
+   */
+  fun specVerdict(spec: Spec): String? {
+    if (!SHA256_PATTERN.matches(spec.sha256)) {
+      return "sha256 必须是 64 位小写十六进制（实际 ${spec.sha256.length} 字符）"
+    }
+    if (spec.size < 0L || spec.size > MAX_DOWNLOAD_BYTES) {
+      return "size 必须是 0..$MAX_DOWNLOAD_BYTES 的整数（实际 ${spec.size}）"
+    }
+    return null
+  }
+
   /** 摘要与体量的合规判据（纯函数）：两者都必须与清单一致。 */
   fun verifyVerdict(digest: SnapshotBundledAsset.Digest, spec: Spec): String? {
     if (digest.bytes != spec.size) {
@@ -189,6 +219,8 @@ internal object LinuxAssetIO {
    * 校验发生在 rename 之前：任何失败都不留下半个「看似可用」的资产。
    */
   fun download(spec: Spec, destination: File, root: File, opener: Opener = HttpOpener): Failure? {
+    // 清单字面量先判：摘要是路径段的来源，校验必须早于任何文件系统动作（含下面的 mkdirs/delete）。
+    specVerdict(spec)?.let { return Failure(CODE_SPEC_INVALID, it) }
     urlVerdict(spec.url)?.let { return Failure(CODE_URL_REJECTED, it) }
     val rootCanon = root.canonicalPath
     val destCanon = destination.parentFile?.canonicalPath ?: rootCanon

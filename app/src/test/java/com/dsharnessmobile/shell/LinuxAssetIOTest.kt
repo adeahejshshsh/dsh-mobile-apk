@@ -60,6 +60,40 @@ class LinuxAssetIOTest {
   private fun archiveFile(root: File, bytes: ByteArray, name: String = "asset.tar.xz"): File =
     File(root, name).apply { writeBytes(bytes) }
 
+  // ── 清单字面量面（摘要是路径段的来源） ────────────────────────────────────
+
+  @Test
+  fun validatesTheDigestAsAPathSegmentBeforeItCanReachTheFilesystem() {
+    val ok = LinuxAssetIO.Spec(goodUrl, "a".repeat(64), 16L)
+    assertNull("合法 64 位小写十六进制必须放行", LinuxAssetIO.specVerdict(ok))
+
+    for (bad in listOf("", "..", ".", "../../../app_state", "/abs/path", "staging/../../x")) {
+      assertNotNull("含路径语义的摘要必须判红：$bad", LinuxAssetIO.specVerdict(ok.copy(sha256 = bad)))
+    }
+    for (bad in listOf("a".repeat(63), "a".repeat(65), "A".repeat(64), "g".repeat(64), "z".repeat(64))) {
+      assertNotNull("非 64 位小写十六进制必须判红：$bad", LinuxAssetIO.specVerdict(ok.copy(sha256 = bad)))
+    }
+    assertNotNull("负体量必须判红", LinuxAssetIO.specVerdict(ok.copy(size = -1L)))
+    assertNotNull(
+      "超过兜底上限的体量必须判红",
+      LinuxAssetIO.specVerdict(ok.copy(size = LinuxAssetIO.MAX_DOWNLOAD_BYTES + 1L)),
+    )
+
+    // 下载面自己也判这道（防调用方绕过 LinuxAssetPrepare 直接调它）：必须**早于**任何文件系统动作。
+    val root = tempRoot()
+    try {
+      val destination = File(root, "x.tar.xz")
+      val failure = LinuxAssetIO.download(ok.copy(sha256 = "../../../app_state"), destination, root) { _, _, _ ->
+        throw AssertionError("must not fetch")
+      }
+      assertNotNull(failure)
+      assertEquals(LinuxAssetIO.CODE_SPEC_INVALID, failure!!.code)
+      assertFalse("不合规清单不得留下任何文件", destination.exists())
+    } finally {
+      SnapshotFs.deletePath(root)
+    }
+  }
+
   // ── 来源面 ────────────────────────────────────────────────────────────────
 
   @Test

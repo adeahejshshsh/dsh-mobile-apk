@@ -132,8 +132,79 @@ class LinuxAssetPrepareTest {
   fun rejectsAnUnparseableRequest() {
     val answer = JSONObject(LinuxAssetPrepare.start(root, "{not json"))
     assertEquals(false, answer.getBoolean("ok"))
-    assertFalse(answer.isNull("code"))
+    assertEquals(LinuxAssetIO.CODE_SPEC_INVALID, answer.getString("code"))
     assertFalse(answer.isNull("detail"))
+  }
+
+  /**
+   * 响应面：清单字面量不合规（摘要格式 / 体量）→ 在起线程、碰文件系统、触网之前就拒绝。
+   */
+  @Test
+  fun rejectsAnInvalidDigestOrSizeBeforeAnyWorkStarts() {
+    var started = false
+    LinuxAssetPrepare.runner = { started = true }
+    var fetched = false
+    LinuxAssetPrepare.opener = LinuxAssetIO.Opener { _, _, _ -> fetched = true; -1L }
+
+    val bytes = goodArchive()
+    val bad = listOf(
+      "../../sentinel",
+      "../../../app_state",
+      "../../../../../../shared_prefs",
+      "..",
+      ".",
+      "/abs/path",
+      "staging/../../escape",
+      "a".repeat(63),
+      "a".repeat(65),
+      "A".repeat(64),
+      "z".repeat(64),
+      "",
+    ).map { it to 10L } + listOf(
+      sha256(bytes) to -1L,
+      sha256(bytes) to (LinuxAssetIO.MAX_DOWNLOAD_BYTES + 1L),
+    )
+
+    for ((digest, size) in bad) {
+      val json = JSONObject().put("url", goodUrl).put("sha256", digest).put("size", size).toString()
+      val answer = JSONObject(LinuxAssetPrepare.start(root, json))
+      assertEquals("digest=$digest size=$size 必须被拒", false, answer.getBoolean("ok"))
+      assertEquals("digest=$digest size=$size", LinuxAssetIO.CODE_SPEC_INVALID, answer.getString("code"))
+    }
+    assertFalse("不合规清单不得启动工作", started)
+    assertFalse("不合规清单不得触达网络", fetched)
+  }
+
+  /**
+   * 文件系统面 —— 本缺陷的**承重**判据。
+   *
+   * 摘要是**路径段的来源**，而 `SnapshotFs.deletePath` 是无包含检查的递归删除。修复前
+   * `sha256 = "../../sentinel"` 让 `<envRoot>/staging/../../sentinel` 解析到环境根**之外**，
+   * 于是在下载与校验之前就把哨兵删掉了（删除排在 `download()` 之前，URL 404 也照样删）。
+   *
+   * 本条**故意不判响应码**：只判「环境根之外一个字节都没被动过」。若在这里也判响应码，缺陷存在时
+   * 会先红在响应码上，永远走不到哨兵那一行 —— 那正是「只查响应码抓不到该缺陷」的原因。
+   */
+  @Test
+  fun neverDeletesOutsideTheEnvironmentRootWhateverTheDigestSays() {
+    val sentinel = File(root, "sentinel").apply { mkdirs() }
+    val keep = File(sentinel, "keep.txt").apply { writeText("keep") }
+
+    // 自证非空转：确认该摘要确实**精确指向**哨兵，否则这条负控会悄悄退化成空判。
+    val escaped = File(File(envRoot, LinuxAssetPrepare.DIR_STAGING), "../../sentinel")
+    assertEquals(
+      "本负控的前提：该摘要必须解析到环境根之外的哨兵",
+      sentinel.canonicalFile,
+      escaped.canonicalFile,
+    )
+
+    val json = JSONObject().put("url", goodUrl).put("sha256", "../../sentinel").put("size", 10L).toString()
+    LinuxAssetPrepare.start(root, json)
+
+    assertTrue("环境根之外的哨兵必须还在（这正是本缺陷的判据）", keep.isFile)
+    assertTrue("哨兵目录必须还在", sentinel.isDirectory)
+    assertTrue("环境根本身必须还在", envRoot.isDirectory)
+    assertTrue("环境根的状态文件必须还在", File(envRoot, LinuxAssetIO.STATE_FILE).isFile)
   }
 
   @Test

@@ -71,9 +71,15 @@ internal object LinuxAssetPrepare {
     } catch (e: Exception) {
       return JSONObject()
         .put("ok", false)
-        .put("code", LinuxAssetIO.CODE_URL_REJECTED)
+        .put("code", LinuxAssetIO.CODE_SPEC_INVALID)
         .put("detail", "清单不可解析：" + (e.message ?: e.javaClass.simpleName))
         .toString()
+    }
+
+    // 第一道：清单字面量。摘要是**路径段的来源**，必须先于任何文件系统使用判定 ——
+    // 否则 `sha256 = "../../../app_state"` 会让下面的递归删除删掉环境根之外的目录。
+    LinuxAssetIO.specVerdict(spec)?.let { detail ->
+      return finish(LinuxAssetIO.CODE_SPEC_INVALID, detail, spec).toString()
     }
 
     synchronized(lock) {
@@ -102,7 +108,7 @@ internal object LinuxAssetPrepare {
             code = null,
             detail = null,
             bytes = spec.size,
-            stagedPath = stagedDir(root, spec).absolutePath,
+            stagedPath = stagedDir(root, spec.sha256)?.absolutePath,
           )
         }
       } else {
@@ -126,9 +132,22 @@ internal object LinuxAssetPrepare {
       .toString()
   }
 
-  /** 宿主暂存目录：按内容摘要命名，客户端无从指定。 */
-  private fun stagedDir(root: File, spec: LinuxAssetIO.Spec): File =
-    File(File(root, DIR_STAGING), spec.sha256)
+  /**
+   * 宿主暂存目录：按内容摘要命名，客户端无从指定。
+   *
+   * **双保险**：格式（64 位小写十六进制）与**包含关系**都要过。返回 null = 拒绝 ——
+   * 调用方必须 fail closed，且在拿到非 null 之前不得把该路径交给任何删除函数。
+   */
+  private fun stagedDir(root: File, sha256: String): File? {
+    if (!LinuxAssetIO.SHA256_PATTERN.matches(sha256)) return null
+    return LinuxAssetIO.resolveInside(root, "$DIR_STAGING/$sha256")
+  }
+
+  /** 工作目录（发布前的 `.part`）：同样先验格式再验包含关系。 */
+  private fun workDir(root: File, sha256: String): File? {
+    if (!LinuxAssetIO.SHA256_PATTERN.matches(sha256)) return null
+    return LinuxAssetIO.resolveInside(root, "$DIR_STAGING-$sha256.part")
+  }
 
   /**
    * 下载 → 校验 → 解包到宿主暂存区，全部通过后才**原子发布**成 `<staging>/<sha256>/`。
@@ -138,8 +157,12 @@ internal object LinuxAssetPrepare {
    * 相信宿主写下的任何标记。
    */
   private fun prepareInto(root: File, spec: LinuxAssetIO.Spec): LinuxAssetIO.Failure? {
-    val staged = stagedDir(root, spec)
-    val staging = File(root, "$DIR_STAGING-${spec.sha256}.part")
+    // 防御纵深：即便 specVerdict 已经过了，推导结果仍要独立确认落在 root 之内才允许碰文件系统。
+    val staged = stagedDir(root, spec.sha256)
+      ?: return LinuxAssetIO.Failure(LinuxAssetIO.CODE_SPEC_INVALID, "暂存目录推导被拒绝：${spec.sha256}")
+    val staging = workDir(root, spec.sha256)
+      ?: return LinuxAssetIO.Failure(LinuxAssetIO.CODE_SPEC_INVALID, "工作目录推导被拒绝：${spec.sha256}")
+
     SnapshotFs.deletePath(staged)
     SnapshotFs.deletePath(staging)
     staging.mkdirs()
