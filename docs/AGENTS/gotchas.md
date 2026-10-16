@@ -1938,3 +1938,14 @@ Stellar 在跑、兼容层正常，本应用却在设置页与工具面一律报
 **0.15.0 追加（同一个坑的第二形态：把 fiber 包成普通对象会丢可等待性）**：`install` 要交出 bootstrap 要求的 `{manager}`，就得读激活作用域里的 `linuxRuntimeManager`，于是宿主把 fiber 适配成 `{state, dispose, get}` 的普通对象——普通对象**不可 await**，`await activation` 立刻返回，`state` 还在 PENDING，健康的异步 `apply()` 被误判成「did not become active」。修法：适配器保留 `ready`（承载 fiber 自身的 thenable 结算）并在 ACTIVE 判定前 await；`state` 用 getter 保持实时。适配器 `cordisScope` 由模块导出，`src/index.ts` 与单测共用同一份，避免「宿主能读到服务、测试读不到」的两侧漂移。
 
 复验证据：`plugins/dsh-android-linux-env/test/linux-environment.test.mjs` 用真实 Cordis 跑异步服务提供/卸载，另注入启动异常和缺依赖反证，断言失败不能留下部分服务；在场用例覆盖平铺/版本化布局、越级目录名、外逃符号链接，以及「先激活 → 手工移除 → 在场转 false 且 install 失败关闭、运行中 scope 不被写回」这条不复活链。`install` 无 manager 时报 bootstrap 原文错误、`rollback` 释放作用域、以及「只有 install/uninstall 齐全才算 manager」各有用例。`settings.section` 的归属反证：`dsh-client-ui-slots` 对 list 槽重复 id 抛错，故壳侧同名分区已于 0.15.0 撤回（见 modules.md），未启用时无入口。
+
+
+317. **引擎侧（Node/Cordis）没有反向通道调用壳侧 Kotlin —— 「让宿主提供原语」必须走客户端或新队列（Linux 资产 IO 实证）**：
+
+现象：设计「引擎侧 bootstrap 需要宿主做下载/解包」时，直觉是「插件直接调 Kotlin 桥方法」。实际结构不支持这个方向：壳侧是**客户端**，长轮询引擎的 `/api/android/ui/pending`（`ControlPoller.kt:48` `BASE = http://127.0.0.1:3080`、`:101-113` 取 `{reqId,op,args}` 执行、`:138` 回投 `/api/android/ui/result`），路由由引擎侧 `registerControlRoutes` 注册（`plugins/dsh-android-bridge/src/control-queue.ts:345-369`）。`app/src/main` 全树**没有** `ServerSocket`/`HttpServer`，唯一直连是 WebView 的 `@JavascriptInterface`。
+
+真因：那条队列**就是设备控制队列**，其策略要求 `danger-full-access`（`control-policy.ts:68`，`:84-87` 以「会话档位为 X，设备控制面要求 danger-full-access」拒绝）。把 Linux 资产下载挂上去 = 「装 Linux 必须先开设备控制档」，与用户「Linux 不是沙箱、不要只靠 danger-full-access」的要求相悖；而 `dsh-android-bridge` 对外只 `provide('androidPrivilege')`（`index.ts:1608`），没有任何「入队」可给第三方插件用。
+
+修法：字节获取走**客户端触发**（页面 `@JavascriptInterface` → 宿主下载/校验/解包），不新增引擎→壳能力、不动镜像面的 `ControlProtocolV2.SUPPORTED_OPS` / `ControlOp`。另一条路（新增一条**非门禁**的资产队列）会引入一个「任何能访问引擎 localhost 的东西都可调用」的新特权原语，得不偿失。
+
+复验证据：`app/src/test/java/com/dsharnessmobile/shell/LinuxAssetIOTest.kt`、`LinuxAssetPrepareTest.kt`（16 例）：来源面（http/非白名单主机/跨仓/latest 非版本化/带 query/多一段路径全部判红）、落点面（绝对路径/`..`/NUL）、摘要与字节数各自的负控、穿越与符号链接逃逸的「不得落地」断言、解压炸弹（条目数/单文件）判红、以及环境不在场/来源不合规时**在起线程之前**拒绝（连网络都不触达）。

@@ -48,6 +48,12 @@
 
 设备验收仅覆盖未注入状态：不显示 Linux 设置入口、API 503、无运行目录或 Linux 工具自动创建；没有执行真实 Linux 安装、更新、重装、卸载，也没有打包最终 APK 或完成真机验收。这些不登记为通过。这两个插件是我们自己的实验性内部插件（默认不启用），发布不得自动修改注入目录或启用它们；实际启用与完整安装验收须基于用户显式启用后的成品另行完成。
 
+### 0.15.0 追加：宿主侧「准备」已就位，端到端仍差三段（如实登记）
+
+已落地并有反证：`LinuxAssetIO`（来源面/落点面/摘要+体量/解包面判据，复用 `SnapshotExtractor` 与 `SnapshotBundledAsset`）与 `LinuxAssetPrepare`（客户端触发入口，`@JavascriptInterface` `linuxAssetPrepare`/`linuxAssetPrepareStatus`）。五条负控（穿越、符号链接逃逸、炸弹、摘要不符、字节数不符）在 Kotlin 侧各有真实用例，且失败一律不发布产物。
+
+**仍未打通的四段（均不记通过）**：① 引擎侧 bootstrap 的 `linuxAssetIO` 透传/占位接线**未做**——引擎侧既解不了 `.tar.xz` 也调不动宿主，故 `downloadAsset`/`extractArchive` 的最终形态与「什么都没准备就失败关闭」都还没接；② **页面侧没有调用者**：`linuxAssetPrepare` 在 `android-bridge.ts` 里只是声明位，实际调用点应由 Linux 设置页（vendored bootstrap 客户端，上游所有）在用户点安装前发起，属于上游改动；③ bootstrap 包**仍未进注入集**，不随应用分发；④ 因此**没有任何端到端安装验收**，也没跑过真实 Release 产物。
+
 ## 历史事项不自动关闭
 
 旧登记的浏览器自动落位、看门狗恢复入口、API<30 截图回落、多 ROM 限制、动效、滚动条、低置信度依赖判据等，保留当时证据。应按当前源码逐项分类为已改、仍存在或仅特定设备待验；不得把旧“未修”直接当当前事实，也不得把归档当完成。
