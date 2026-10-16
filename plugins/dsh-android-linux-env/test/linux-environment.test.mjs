@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { Context } from '@deepseek-ai/cordis'
-import { createLinuxPluginHost, registerLinuxEnvironmentRoutes, checkLinuxEnvironmentAfterMobileChange } from '../lib/linux-environment.js'
+import { createLinuxPluginHost, registerLinuxEnvironmentRoutes, checkLinuxEnvironmentAfterMobileChange, normalizeLinuxStatus } from '../lib/linux-environment.js'
 
 const TOKEN = 'a'.repeat(32)
 function makeBootstrap(overrides = {}) {
@@ -205,6 +205,65 @@ test('manual removal is never resurrected: activation and reinstall both fail cl
     assert.equal(ctx.get('runtimeInjectedMarker'), true, 'the running scope is untouched by failed reinstalls')
     await host.uninstall()
   } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+test('normalizer accepts the finalized Bionilux status shape and the earlier proposal', () => {
+  const finalized = normalizeLinuxStatus({
+    installed: true, version: '1.2.0', mobileVersion: '0.14.9', autoUpdate: true, availableVersion: '1.3.0',
+    updateAvailable: true, busy: false, operation: 'idle', runtime: 'debian-minimal', injectionActivated: true,
+    enabled: true, pluginReleaseUrls: { bootstrap: 'https://github.com/kelai141/dsh-bionilux/releases/tag/v1', runtime: 'https://github.com/kelai141/dsh-bionilux/releases/tag/v1' },
+    lastCheckAt: '2026-10-16T10:00:00Z',
+  })
+  assert.deepEqual(finalized, {
+    installed: true, version: '1.2.0', mobileVersion: '0.14.9', installedSystemMobileVersion: undefined,
+    autoUpdate: true, availableVersion: '1.3.0', busy: false,
+    runtime: { id: 'debian-minimal', label: 'Debian minimal' },
+    plugins: { bootstrap: { releaseUrl: 'https://github.com/kelai141/dsh-bionilux/releases/tag/v1' }, runtime: { releaseUrl: 'https://github.com/kelai141/dsh-bionilux/releases/tag/v1' } },
+    injectionActivated: true, enabled: true, lastCheckAt: '2026-10-16T10:00:00Z', error: undefined,
+  })
+  // Earlier proposed names still normalize; a blocked update hides the candidate but stays visible as an error.
+  const legacy = normalizeLinuxStatus({
+    installedLinuxVersion: '0.9.0', currentMobileVersion: '0.14.8', autoUpdateEnabled: true,
+    updateAvailable: true, updateBlocked: true, latestReleaseVersion: '2.0.0', runtimeId: 'debian-minimal',
+    plugins: { bootstrap: { releaseUrl: 'https://github.com/kelai141/dsh-bionilux/releases/tag/v1' } },
+  })
+  assert.equal(legacy.installed, true)
+  assert.equal(legacy.availableVersion, undefined)
+  assert.match(legacy.error, /不兼容/)
+  assert.equal(legacy.mobileVersion, '0.14.8')
+  assert.equal(legacy.autoUpdate, true)
+  assert.deepEqual(normalizeLinuxStatus({}).mobileVersion, 'unknown', 'an absent version must not render blank')
+})
+
+test('install accepts the optional enable flag and reports what it activated', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'linux-host-result-'))
+  const root = join(dir, 'plugins')
+  try {
+    const directory = join(root, 'runtime')
+    await mkdir(join(directory, 'lib'), { recursive: true })
+    await writeFile(join(directory, 'lib', 'index.js'), 'export function apply() {}')
+    const host = createLinuxPluginHost({ root, activate: () => ({ state: 2, dispose() {} }) })
+    assert.deepEqual(await host.install({ directory, enable: true, config: {} }), { directory, active: true })
+    assert.deepEqual(await host.install({ directory }), { directory, active: true }, 'repeat activation is idempotent')
+    assert.deepEqual(await host.isInjected({ directory }), { injected: true, active: true, directory })
+    const outside = join(dir, 'elsewhere')
+    assert.deepEqual(await host.isInjected({ directory: outside }), { injected: false, active: false })
+    await assert.rejects(host.install({ directory: outside, enable: true }), /not present in the injection directory/)
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+test('automatic checks stay off when the runtime injection was removed or the system disabled', async () => {
+  for (const state of [
+    { installed: true, autoUpdate: true, mobileVersion: '0.14.9', installedSystemMobileVersion: '0.14.8', injectionActivated: false },
+    { installed: true, autoUpdate: true, mobileVersion: '0.14.9', installedSystemMobileVersion: '0.14.8', enabled: false },
+  ]) {
+    const bootstrap = makeBootstrap(state)
+    await checkLinuxEnvironmentAfterMobileChange(bootstrap)
+    assert.deepEqual(bootstrap.calls, [], JSON.stringify(state))
+  }
+  const allowed = makeBootstrap({ installed: true, autoUpdate: true, mobileVersion: '0.14.9', installedSystemMobileVersion: '0.14.8', injectionActivated: true })
+  await checkLinuxEnvironmentAfterMobileChange(allowed)
+  assert.deepEqual(allowed.calls, [['check', { source: 'mobile-version-change' }]])
 })
 
 test('pluginHost rejects activation with no Android filesDir and a non-Cordis bundle', async () => {

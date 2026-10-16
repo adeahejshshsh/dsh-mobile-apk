@@ -130,6 +130,12 @@ describe('Linux environment opt-in settings', () => {
     expect(host.textContent).toContain('状态响应无效')
     expect([...host.querySelectorAll('button')].find(button => button.textContent === '安装 Debian minimal')!.disabled).toBe(true)
   })
+  it('explains a removed runtime injection instead of silently stopping updates', async () => {
+    state = { ...state, installed: true, version: '1.2.0', autoUpdate: true, injectionActivated: false }
+    await render()
+    expect(host.textContent).toContain('自动更新已停用')
+    expect(host.textContent).toContain('不会自动还原')
+  })
   it('does not render arbitrary manifest links', async () => {
     state.plugins = { bootstrap: { releaseUrl: 'javascript:alert(1)' }, runtime: { releaseUrl: 'https://example.com/releases/tag/v1' } }
     await render()

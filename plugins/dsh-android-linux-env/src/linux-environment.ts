@@ -8,19 +8,31 @@ import {
 } from '@dsh-android/dsh-android-bridge'
 
 export interface BootstrapStatus {
-  autoUpdateEnabled: boolean
-  currentMobileVersion: string
+  /** Finalized Bionilux shape. */
+  installed?: boolean
+  version?: string | null
+  mobileVersion?: string
   installedSystemMobileVersion?: string | null
-  mobileVersionChanged?: boolean
-  lastAutomaticCheckMobileVersion?: string | null
+  autoUpdate?: boolean
+  availableVersion?: string | null
+  updateAvailable?: boolean
+  updateBlocked?: boolean
+  busy?: boolean
+  operation?: string | null
+  runtime?: { id?: string; label?: string; state?: string } | string | null
+  injectionActivated?: boolean
+  enabled?: boolean
+  pluginReleaseUrls?: { bootstrap?: string; runtime?: string }
+  lastCheckAt?: string | null
+  error?: string | null
+  /** Earlier proposal; kept accepted so an older bootstrap still normalizes. */
+  autoUpdateEnabled?: boolean
+  currentMobileVersion?: string
   installedLinuxVersion?: string | null
   runtimeId?: string | null
   latestReleaseVersion?: string | null
-  updateAvailable?: boolean
-  updateBlocked?: boolean
-  lastCheckAt?: string | null
+  lastAutomaticCheckMobileVersion?: string | null
   lastError?: string | null
-  operation?: string | null
   plugins?: { bootstrap?: { releaseUrl?: string }; runtime?: { releaseUrl?: string } }
 }
 
@@ -34,12 +46,13 @@ export interface LinuxBootstrap {
 }
 
 interface PluginScope { dispose(): unknown | Promise<unknown>; state?: FiberState }
-export interface PluginInstall { directory: string; entry?: string; config?: Record<string, unknown> }
+export interface PluginInstall { directory: string; entry?: string; config?: Record<string, unknown>; enable?: boolean }
 /** Injection knowledge is limited to what the user actually placed under the bootstrap root. */
-export interface PluginInjectionQuery { name?: string; runtimeId?: string }
+export interface PluginInjectionQuery { name?: string; runtimeId?: string; directory?: string }
 export interface PluginInjectionState { injected: boolean; active: boolean; directory?: string }
+export interface PluginInstallResult { directory: string; active: boolean }
 export interface LinuxPluginHost {
-  install(options: PluginInstall): Promise<void>
+  install(options: PluginInstall): Promise<PluginInstallResult>
   uninstall(): Promise<void>
   isInjected(query: PluginInjectionQuery): Promise<PluginInjectionState>
 }
@@ -52,8 +65,8 @@ export function createLinuxPluginHost(options: {
 }): LinuxPluginHost {
   let scope: PluginScope | undefined
   let activeDirectory: string | undefined
-  let operation: Promise<void> = Promise.resolve()
-  const serialize = (fn: () => Promise<void>) => {
+  let operation: Promise<unknown> = Promise.resolve()
+  const serialize = <T>(fn: () => Promise<T>): Promise<T> => {
     const next = operation.then(fn)
     operation = next.catch(() => {})
     return next
@@ -78,6 +91,10 @@ export function createLinuxPluginHost(options: {
    * stays removed and cannot be resurrected by a new release or app version.
    */
   const findInjected = async (root: string, query: PluginInjectionQuery, entry: string) => {
+    if (typeof query.directory === 'string' && query.directory !== '') {
+      const explicit = await realpath(query.directory).catch(() => undefined)
+      if (explicit !== undefined && inside(root, explicit) && await isFile(join(explicit, entry))) return explicit
+    }
     for (const name of [query.name, query.runtimeId]) {
       if (typeof name !== 'string' || !SAFE_NAME.test(name)) continue
       let base: string
@@ -103,7 +120,7 @@ export function createLinuxPluginHost(options: {
       }
       const entry = await realpath(resolve(directory, defaultEntry(input.entry)))
       if (!inside(directory, entry)) throw new Error('Runtime plugin entry must be inside its verified directory')
-      if (scope && activeDirectory === directory) return
+      if (scope && activeDirectory === directory) return { directory, active: true }
       const plugin = await (options.importModule ?? (url => import(url)))(pathToFileURL(entry).href)
       if (typeof plugin !== 'object' || plugin === null || typeof (plugin as { apply?: unknown }).apply !== 'function') {
         throw new Error('Runtime bundle must export a Cordis apply function')
@@ -120,6 +137,7 @@ export function createLinuxPluginHost(options: {
         }
         scope = activated
         activeDirectory = directory
+        return { directory, active: true }
       } catch (error) {
         const failed = activated ?? ('dispose' in activation ? activation : undefined)
         await failed?.dispose()
@@ -134,12 +152,16 @@ export function createLinuxPluginHost(options: {
     isInjected: async query => {
       const root = await rootReal()
       if (root === undefined) return { injected: false, active: false }
+      const asked = (typeof query.directory === 'string' && query.directory !== '') ||
+        [query.name, query.runtimeId].some(name => typeof name === 'string' && name !== '')
       const directory = await findInjected(root, query, defaultEntry())
       if (directory !== undefined) {
         return { injected: true, active: scope !== undefined && activeDirectory === directory, directory }
       }
-      // No name matched: report the currently activated directory only if it still exists on disk,
-      // so a manual deletion is visible instead of being masked by stale in-memory state.
+      // A specific query that matched nothing is a real "not injected" answer. Only an empty query
+      // may fall back to the activated directory, and only while that directory still exists on disk,
+      // so a manual deletion stays visible instead of being masked by stale in-memory state.
+      if (asked) return { injected: false, active: false }
       if (activeDirectory !== undefined && inside(root, activeDirectory) && await isFile(join(activeDirectory, defaultEntry()))) {
         return { injected: true, active: scope !== undefined, directory: activeDirectory }
       }
@@ -148,27 +170,51 @@ export function createLinuxPluginHost(options: {
   }
 }
 
+/** Normalizes both the finalized Bionilux status shape and the earlier proposed one. */
 export function normalizeLinuxStatus(status: BootstrapStatus) {
+  const updateBlocked = status.updateBlocked === true
+  const runtime = status.runtime ?? status.runtimeId ?? undefined
+  const runtimeFace = typeof runtime === 'string'
+    ? { id: runtime, label: runtime === 'debian-minimal' ? 'Debian minimal' : runtime }
+    : runtime ?? undefined
+  const plugins = status.plugins ?? (status.pluginReleaseUrls === undefined ? undefined : {
+    bootstrap: { releaseUrl: status.pluginReleaseUrls.bootstrap },
+    runtime: { releaseUrl: status.pluginReleaseUrls.runtime },
+  })
   return {
-    installed: Boolean(status.installedLinuxVersion),
-    version: status.installedLinuxVersion ?? undefined,
-    mobileVersion: status.currentMobileVersion,
+    installed: status.installed ?? Boolean(status.installedLinuxVersion),
+    version: status.version ?? status.installedLinuxVersion ?? undefined,
+    mobileVersion: status.mobileVersion ?? status.currentMobileVersion ?? 'unknown',
     installedSystemMobileVersion: status.installedSystemMobileVersion ?? undefined,
-    autoUpdate: status.autoUpdateEnabled,
-    availableVersion: status.updateAvailable && !status.updateBlocked ? status.latestReleaseVersion ?? undefined : undefined,
-    busy: Boolean(status.operation && status.operation !== 'idle'),
-    runtime: status.runtimeId ? { id: status.runtimeId, label: status.runtimeId === 'debian-minimal' ? 'Debian minimal' : status.runtimeId } : undefined,
-    plugins: status.plugins,
-    error: status.lastError ?? (status.updateBlocked ? '此系统版本与当前应用不兼容，暂不能安装更新。' : undefined),
+    autoUpdate: status.autoUpdate ?? status.autoUpdateEnabled ?? false,
+    availableVersion: status.availableVersion ??
+      (status.updateAvailable === true && !updateBlocked ? status.latestReleaseVersion ?? undefined : undefined),
+    busy: status.busy ?? Boolean(status.operation && status.operation !== 'idle'),
+    runtime: runtimeFace,
+    plugins,
+    // A removed injection means automatic updates are off: surface it instead of a silent stop.
+    injectionActivated: status.injectionActivated,
+    enabled: status.enabled,
+    lastCheckAt: status.lastCheckAt ?? undefined,
+    error: status.error ?? status.lastError ??
+      (updateBlocked ? '此系统版本与当前应用不兼容，暂不能安装更新。' : undefined),
   }
 }
 
+/**
+ * One attempt per app version, only when the system is still installed and still injected.
+ * Bootstrap owns persistence and dedupe; this gate only decides whether to ask at all.
+ */
 export async function checkLinuxEnvironmentAfterMobileChange(bootstrap: LinuxBootstrap): Promise<void> {
   const status = await bootstrap.status()
-  if (!status.autoUpdateEnabled || !status.installedLinuxVersion || !status.installedSystemMobileVersion ||
-    !status.currentMobileVersion || status.installedSystemMobileVersion === status.currentMobileVersion ||
-    status.lastAutomaticCheckMobileVersion === status.currentMobileVersion ||
-    (status.operation && status.operation !== 'idle')) return
+  const installed = status.installed ?? Boolean(status.installedLinuxVersion)
+  const mobileVersion = status.mobileVersion ?? status.currentMobileVersion
+  if ((status.autoUpdate ?? status.autoUpdateEnabled) !== true || !installed) return
+  if (status.injectionActivated === false || status.enabled === false) return
+  if (!status.installedSystemMobileVersion || !mobileVersion) return
+  if (status.installedSystemMobileVersion === mobileVersion) return
+  if (status.lastAutomaticCheckMobileVersion === mobileVersion) return
+  if (status.operation && status.operation !== 'idle') return
   await bootstrap.checkForUpdates({ source: 'mobile-version-change' })
 }
 

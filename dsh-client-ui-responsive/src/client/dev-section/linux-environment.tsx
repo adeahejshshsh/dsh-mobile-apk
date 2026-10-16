@@ -14,6 +14,9 @@ export interface LinuxEnvironmentStatus {
     bootstrap?: { releaseUrl?: string }
     runtime?: { releaseUrl?: string }
   }
+  injectionActivated?: boolean
+  enabled?: boolean
+  lastCheckAt?: string
   error?: string
 }
 
@@ -114,6 +117,8 @@ export function LinuxEnvironmentSection(_props: PropsRuntime<'settings.section'>
       <p role="status">{status === null ? '尚未读取环境状态' : status.busy ? '环境操作进行中' : status.installed ? `已安装：${status.version ?? '版本未知'}` : '尚未安装 Linux 环境'}</p>
       {status?.runtime && <p>Bionilux：{status.runtime.label ?? status.runtime.id ?? 'Debian minimal'}{status.runtime.state ? `（${status.runtime.state}）` : ''}</p>}
       {status && <p className="dsh-dev-hint">当前应用版本：{status.mobileVersion}</p>}
+      {status?.installed === true && (status.injectionActivated === false || status.enabled === false) &&
+        <p role="status">自动更新已停用：runtime 插件已从注入目录移除。重新显式注入并启用后才会恢复，应用更新不会自动还原。</p>}
       {status?.error && <p role="alert">{status.error}</p>}
       <div className="dsh-dev-row">
         <label><input type="checkbox" checked={status?.autoUpdate ?? false} disabled={disabled || status === null}

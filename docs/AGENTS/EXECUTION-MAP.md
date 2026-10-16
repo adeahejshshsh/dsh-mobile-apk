@@ -1442,7 +1442,7 @@ flowchart TD
 
 #### P04 文件打开、Linux 环境与模型能力插件
 
-Linux 外部插件宿主适配：`plugins/dsh-android-linux-env/src/linux-environment.ts` 提供受鉴权的 Linux 生命周期 HTTP 路由和 `linuxPluginHost`。宿主不下载、校验或解包资产，不把 bootstrap/runtime 加入静态 profile；bootstrap 由用户显式注入并启用后提供 `linuxBootstrap` 服务，设置页才注册「Linux环境」。runtime 目录由外部 bootstrap 完成事务后交给宿主，必须位于 `$DSH_FILES_DIR/linux-environment/plugins` 内；宿主核对 realpath 后动态 import，等待 Cordis fiber 激活，失败或卸载时 dispose。`linuxPluginHost.isInjected({name?,runtimeId?})` 只读上报注入成员关系（平铺或 `<name>/<version>` 布局，拒绝分隔符与外逃符号链接），是「用户已显式注入」的判定依据：手工删除后 `install()` 以未注入失败关闭，新 Release 或新应用版本不会把插件重新写回。
+Linux 外部插件宿主适配：`plugins/dsh-android-linux-env/src/linux-environment.ts` 提供受鉴权的 Linux 生命周期 HTTP 路由和 `linuxPluginHost`。宿主不下载、校验或解包资产，不把 bootstrap/runtime 加入静态 profile；bootstrap 由用户显式注入并启用后提供 `linuxBootstrap` 服务，设置页才注册「Linux环境」。runtime 目录由外部 bootstrap 完成事务后交给宿主，必须位于 `$DSH_FILES_DIR/linux-environment/plugins` 内；宿主核对 realpath 后动态 import，等待 Cordis fiber 激活，失败或卸载时 dispose。`linuxPluginHost.isInjected({name?,runtimeId?,directory?})` 只读上报注入成员关系（平铺或 `<name>/<version>` 布局，拒绝分隔符与外逃符号链接）并作为权威判定：显式查询未命中即 `injected:false`（不回落内存已激活目录），手工删除后 `install()` 以未注入失败关闭，新 Release 或新应用版本不会把插件重新写回。
 
 版本变化链为 `linuxBootstrap 服务就绪 → 读取持久化安装版本/应用基线/自动更新偏好/尝试记录 → 基线不同时 checkForUpdates({source:'mobile-version-change'})`；偏好开关和页面挂载都不发更新检查。手动检查只调用 `source:'manual'`，安装、重装、卸载与开关写入均需 `confirmed:true`。设置页不持久化第二份系统状态，读写都回到 bootstrap；无该服务时 HTTP 503 且不注册设置入口。外部插件的发布不修改注入目录或默认启用状态。完整协议见 `docs/AGENTS/BRIDGE-API.md` 的 Linux 外部插件宿主节；设备证据限未注入状态，不代表完成真实安装验收。
 
