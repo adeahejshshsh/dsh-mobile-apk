@@ -33,6 +33,8 @@ const RUNTIME_PACKAGE_NAME = '@dsh-android/linux-runtime'
 const MANIFEST_NAME = 'linux-release.json'
 const REPO = 'https://github.com/kelai141/dsh-bionilux'
 const TAG = 'v1.2.0'
+/** 宿主已解包树里的入口内容；正控与「篡改不得存活」都对着它断言。 */
+const GENUINE_ENTRY = 'export const apply = () => {}\n'
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex')
 
@@ -44,7 +46,7 @@ async function tempFilesDir() {
  * 造一份**宿主已准备**的暂存内容，形状与 Kotlin `LinuxAssetPrepare.prepareInto` 的发布结果一致：
  * `<filesDir>/linux-environment/staging/<sha256>/{asset.tar.xz, unpacked/package/...}`。
  */
-async function stageBundle(filesDir, { archiveBytes, declaredDigest, packageName = RUNTIME_PACKAGE_NAME, entryBody = 'export const apply = () => {}\n' } = {}) {
+async function stageBundle(filesDir, { archiveBytes, declaredDigest, packageName = RUNTIME_PACKAGE_NAME, entryBody = GENUINE_ENTRY } = {}) {
   const bytes = archiveBytes ?? Buffer.from('host staged runtime archive bytes')
   // `declaredDigest` 允许把内容放在**另一个**摘要名下：这正是「暂存内容与 manifest 摘要不符」的造法。
   const digest = declaredDigest ?? sha256(bytes)
@@ -208,7 +210,7 @@ test('refuses when unpackedSize does not match the staged tree', async () => {
     const { service, pluginHost } = makeBootstrap({ filesDir, manifest: makeManifest({ asset }) })
     await service.ready
 
-    await assert.rejects(installConfirmed(service), /Unpacked size mismatch/)
+    await assert.rejects(installConfirmed(service), /unpacked size mismatch/i)
     assert.equal(pluginHost.activations.length, 0, '体量不符不许激活')
   } finally {
     await rm(filesDir, { recursive: true, force: true })
@@ -246,18 +248,52 @@ test('refuses a malicious digest and touches nothing outside the environment roo
   }
 })
 
-// ── 已知缺口（tripwire，钉住现状而非期望行为） ──────────────────────────────
+// ── 复用面：不再信任何宿主/标记内容（上游 3f86a85 复验后的行为） ──────────────
 
 /**
- * 已知缺口：bootstrap 的**复用**分支只信它自己写下的 `.dsh-asset-integrity.json` 标记，外加一次
- * `validatePackage`（包名/入口）——**不重算归档摘要、不重算 `unpackedSize`**。因此「标记还在 +
- * 树看起来合法」会直接激活，实测如此。
+ * 复用分支必须**复验**，而不是信任槽位里已有的内容或它自己写下的标记。
  *
- * 这条用例**故意钉住现状**：上游一旦在复用分支补上复验，它会变红，提示「缺口已闭合，请更新本条与
- * known-gaps」。宿主侧无法闭合——vendored 源码被 `check-vendored-linux-bootstrap` 逐字钉住，
- * 改它等于让该门禁的「上游一致」声明失真。
+ * 上游把这条缺口补上后（`dsh-bionilux@3f86a85`），篡改过的槽位不会被复用：它按 manifest 的
+ * `unpackedSize` 重新丈量已发布树，不匹配就从**已复验的宿主暂存**重建。
+ *
+ * 判据落在**内容事实**上：安装后再读槽位入口，必须是宿主暂存里的真品，篡改内容不得存活。
  */
-test('KNOWN GAP: the reuse path trusts its own marker and does not re-verify', async () => {
+test('re-verifies on reuse: a tampered published slot is rebuilt, not trusted', async () => {
+  const filesDir = await tempFilesDir()
+  try {
+    const asset = await stageBundle(filesDir)
+    const { service, pluginHost } = makeBootstrap({ filesDir, manifest: makeManifest({ asset }) })
+    await service.ready
+    await installConfirmed(service)
+
+    const slotRoot = String(createLinuxBootstrapConfig({ filesDir, appVersion: '0.15.0' }).stagingDirectory)
+    const slotEntry = join(slotRoot, asset.sha256, 'lib', 'index.js')
+    assert.equal(await readFile(slotEntry, 'utf8'), GENUINE_ENTRY, '前提：首装后槽位是真品')
+
+    // 只篡改**已发布槽位**；宿主暂存的归档与树保持真品（即"重建源"仍在且已复验）。
+    const tampered = 'export const apply = () => { /* TAMPERED */ }\n'
+    await writeFile(slotEntry, tampered)
+    await service.reinstall({ confirmed: true, activate: true })
+
+    assert.notEqual(await readFile(slotEntry, 'utf8'), tampered, '篡改内容不得存活（必须被重建覆盖）')
+    assert.equal(await readFile(slotEntry, 'utf8'), GENUINE_ENTRY, '重建后必须是已复验的宿主暂存内容')
+  } finally {
+    await rm(filesDir, { recursive: true, force: true })
+  }
+})
+
+/**
+ * 重建源一旦与 manifest 不符必须**拒绝**。
+ *
+ * 注意判据的边界（实测得出，别写成"改归档就必拒"）：槽位完好时上游直接**复用**（按 manifest 的
+ * `unpackedSize` 重新丈量树即可，根本不需要读归档），所以只改归档不会失败。归档是**重建源** ——
+ * 只有「需要重建」（槽位被篡改）+「重建源不可信」同时成立，才必须失败关闭。
+ *
+ * 报错来自上游宿主暂存直取路径（`Host-staged archive does not match the release manifest
+ * (SHA-256 or size)`），不是本模块的 `linux-asset-spec-invalid`，故这里断言**行为**
+ * （拒绝 + 不新增激活），不锁死错误码归属。
+ */
+test('refuses when a rebuild is needed and the retained archive no longer matches the manifest', async () => {
   const filesDir = await tempFilesDir()
   try {
     const asset = await stageBundle(filesDir)
@@ -266,17 +302,19 @@ test('KNOWN GAP: the reuse path trusts its own marker and does not re-verify', a
     await installConfirmed(service)
     assert.equal(pluginHost.activations.length, 1)
 
-    // 篡改已安装槽位里的入口，并把宿主保留的归档换成另一份字节。
     const slotRoot = String(createLinuxBootstrapConfig({ filesDir, appVersion: '0.15.0' }).stagingDirectory)
-    const slot = join(slotRoot, asset.sha256)
-    await writeFile(join(slot, 'lib', 'index.js'), 'export const apply = () => { /* tampered */ }\n')
+    const slotEntry = join(slotRoot, asset.sha256, 'lib', 'index.js')
+    assert.equal(await readFile(slotEntry, 'utf8'), GENUINE_ENTRY, '前提：首装后槽位是真品')
+
+    // 同时破坏两样：槽位（迫使重建）与保留归档（让重建源不可信）。
+    await writeFile(slotEntry, 'export const apply = () => { /* TAMPERED */ }\n')
     await writeFile(join(stagedDirectoryFor(filesDir, asset.sha256), RETAINED_ARCHIVE), Buffer.from('different bytes'))
 
-    const after = await service.reinstall({ confirmed: true, activate: true })
-    // 现状：没有被复验拦下，直接再次激活。缺口记在这里，不当作通过。
-    assert.equal(after.installed, true)
-    assert.equal(pluginHost.activations.length, 2, '复用分支未复验即激活——这正是缺口')
-    assert.ok(existsSync(join(slot, '.dsh-asset-integrity.json')), '触发复用的是 bootstrap 自己写下的标记')
+    await assert.rejects(
+      service.reinstall({ confirmed: true, activate: true }),
+      /release manifest \(SHA-256 or size\)/,
+    )
+    assert.equal(pluginHost.activations.length, 1, '重建源复验不过就不许再激活')
   } finally {
     await rm(filesDir, { recursive: true, force: true })
   }

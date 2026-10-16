@@ -41,9 +41,9 @@ const UPSTREAM_PACKAGE = 'packages/linux-bootstrap'
 const MANIFEST = {
   'README.md': 'e09da4489cfe3007387e5ced6e3810149c9eb7853257dd122036f20b00fe7656',
   'client/index.js': '747de10f2ce2545ed9b8b63f0261a5fc656b0b9417af5895536731781daaf072',
-  'src/asset-bundle.js': '81f1c5a7932566e96c8498ed41d5708fd7c8c4ec9dc19f6d0088f46ea449ac89',
+  'src/asset-bundle.js': '2520d8fec29dbaa7da1d6e602ff313ffed8ae1f124e7a94f6f4276f4474dd622',
   'src/github.js': '8bf1bdac19fb17dc866087342b55714661e762124953bb6f697a4c87f04e70c3',
-  'src/index.js': '45e2e1c87864addbc5d3b3aa2800a28afd7abd754f524b296cb256f7b309eec3',
+  'src/index.js': '33da07d3a547ec3fec8f1f73eb09eea3431c0728e2d914bddb9cf4f74744f37e',
   'src/manifest.js': 'a9b8512e24dfbb1b225c2bc260d3d0496b7e8834ef975d17c69355baf1911067',
   'src/routes.js': '678391176bcd81ba6cbbbab293a4731d07e37e99c51178d7605821eac6aa5bb9',
   'src/status.js': '494238e39094999e44105d1c56ca562f88ce3e65146bd3070806d4c82dd98f7b',
