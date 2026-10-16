@@ -318,6 +318,8 @@ export function apply(ctx: ClientContext): void {
     label: () => '模型能力',
   }, ModelCapabilitySection))
 
+  // Linux 环境（实验性内部插件）：插件随机内置在 hard 插件目录，但默认不启用——只有它真的被启用
+  // （服务应答）时才注册设置入口；503 = 在场未启用，不注册。单次本地探测，不轮询、不装更新。
   ctx.effect(() => registerLinuxSettingsWhenEnabled(() => ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
     id: 'linux-environment',

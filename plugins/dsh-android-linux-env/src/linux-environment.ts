@@ -47,7 +47,7 @@ export interface LinuxBootstrap {
 
 interface PluginScope { dispose(): unknown | Promise<unknown>; state?: FiberState }
 export interface PluginInstall { directory: string; entry?: string; config?: Record<string, unknown>; enable?: boolean }
-/** Injection knowledge is limited to what the user actually placed under the bootstrap root. */
+/** Membership knowledge is limited to what is actually present under the built-in plugin root. */
 export interface PluginInjectionQuery { name?: string; runtimeId?: string; directory?: string }
 export interface PluginInjectionState { injected: boolean; active: boolean; directory?: string }
 export interface PluginInstallResult { directory: string; active: boolean }
@@ -57,7 +57,7 @@ export interface LinuxPluginHost {
   isInjected(query: PluginInjectionQuery): Promise<PluginInjectionState>
 }
 
-/** Bootstrap supplies an integrity-verified, versioned directory; only Cordis activation lives here. */
+/** The experimental internal bootstrap ships an integrity-verified, versioned directory; only Cordis activation lives here. */
 export function createLinuxPluginHost(options: {
   root: string | undefined
   activate(plugin: unknown, config: Record<string, unknown>): PluginScope | PromiseLike<PluginScope>
@@ -86,9 +86,9 @@ export function createLinuxPluginHost(options: {
     try { return await realpath(options.root) } catch { return undefined }
   }
   /**
-   * Injection membership is read straight from the directory the user populated.
-   * Nothing is created, repaired or re-downloaded here, so a manually removed plugin
-   * stays removed and cannot be resurrected by a new release or app version.
+   * Presence is read straight from the built-in plugin directory. Nothing is created, repaired or
+   * re-downloaded here, so a plugin the user removed stays removed and cannot be resurrected by a
+   * new release or app version. Presence is not enablement: being present never turns it on.
    */
   const findInjected = async (root: string, query: PluginInjectionQuery, entry: string) => {
     if (typeof query.directory === 'string' && query.directory !== '') {
@@ -158,7 +158,7 @@ export function createLinuxPluginHost(options: {
       if (directory !== undefined) {
         return { injected: true, active: scope !== undefined && activeDirectory === directory, directory }
       }
-      // A specific query that matched nothing is a real "not injected" answer. Only an empty query
+      // A specific query that matched nothing is a real "not present" answer. Only an empty query
       // may fall back to the activated directory, and only while that directory still exists on disk,
       // so a manual deletion stays visible instead of being masked by stale in-memory state.
       if (asked) return { injected: false, active: false }
@@ -202,8 +202,8 @@ export function normalizeLinuxStatus(status: BootstrapStatus) {
 }
 
 /**
- * One attempt per app version, only when the system is still installed and still injected.
- * Bootstrap owns persistence and dedupe; this gate only decides whether to ask at all.
+ * One attempt per app version, only when the system is still installed and still present.
+ * The bootstrap owns persistence and dedupe; this gate only decides whether to ask at all.
  */
 export async function checkLinuxEnvironmentAfterMobileChange(bootstrap: LinuxBootstrap): Promise<void> {
   const status = await bootstrap.status()
@@ -268,7 +268,7 @@ export function registerLinuxEnvironmentRoutes(options: {
           return
         }
         const bootstrap = options.bootstrap()
-        if (!bootstrap) { send(res, 503, { error: 'Linux bootstrap 插件尚未启用，请先将外部插件加入引擎插件注入目录并启用，再重载引擎。' }); return }
+        if (!bootstrap) { send(res, 503, { error: 'Linux bootstrap 内部插件尚未启用。它随应用放在内置（hard）插件目录里，需要你显式启用后重载引擎；存在不等于启用。' }); return }
         if (action === 'status') {
           try {
             const status = normalizeLinuxStatus(await bootstrap.status())

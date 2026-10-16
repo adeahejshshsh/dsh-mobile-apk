@@ -24,7 +24,11 @@ type Action = 'check' | 'install' | 'reinstall' | 'uninstall' | 'auto-update-on'
 const ENDPOINT = '/api/android/linux-environment'
 const CONFIRM_LABELS = { install: '安装 Debian minimal / 更新 Linux 环境', reinstall: '重新安装 Linux 环境', uninstall: '卸载 Linux 环境' } as const
 
-/** A single discovery request follows explicit plugin injection; no boot/network update polling. */
+/**
+ * Discovery for the experimental internal bootstrap plugin: the settings entry exists only once
+ * that built-in plugin has actually been enabled (the service answers). One local request, no polling,
+ * and a 503 (present but not enabled) deliberately registers nothing — presence is not enablement.
+ */
 export function registerLinuxSettingsWhenEnabled(register: () => () => void): () => void {
   const controller = new AbortController()
   let dispose: (() => void) | undefined
@@ -111,14 +115,14 @@ export function LinuxEnvironmentSection(_props: PropsRuntime<'settings.section'>
   return (
     <div className="dsh-dev-notify" data-plugin="settings-linux-environment" aria-busy={disabled}>
       <h3>Linux环境</h3>
-      <p className="dsh-dev-hint">实验性外部系统，默认不启用；仅在你确认安装后启用 Linux 运行支持。</p>
+      <p className="dsh-dev-hint">实验性内部插件（experimental）：随应用放入内置（hard）插件目录，默认不启用——存在不等于启用。</p>
       <p className="dsh-dev-hint">Debian minimal 提供 glibc Linux 运行支持。它不是安全沙箱，Linux 内的 root 不代表 Android root。</p>
       <p className="dsh-dev-hint">Termux / Bionic Bash 保留原有 Android 工具链；Debian / glibc Linux Bash 使用独立运行环境。共享 glibc Node 不会替换 Termux Node。</p>
       <p role="status">{status === null ? '尚未读取环境状态' : status.busy ? '环境操作进行中' : status.installed ? `已安装：${status.version ?? '版本未知'}` : '尚未安装 Linux 环境'}</p>
       {status?.runtime && <p>Bionilux：{status.runtime.label ?? status.runtime.id ?? 'Debian minimal'}{status.runtime.state ? `（${status.runtime.state}）` : ''}</p>}
       {status && <p className="dsh-dev-hint">当前应用版本：{status.mobileVersion}</p>}
       {status?.installed === true && (status.injectionActivated === false || status.enabled === false) &&
-        <p role="status">自动更新已停用：runtime 插件已从注入目录移除。重新显式注入并启用后才会恢复，应用更新不会自动还原。</p>}
+        <p role="status">自动更新已停用：runtime 内部插件已从内置（hard）插件目录移除。重新放回并启用后才会恢复，应用更新不会自动还原。</p>}
       {status?.error && <p role="alert">{status.error}</p>}
       <div className="dsh-dev-row">
         <label><input type="checkbox" checked={status?.autoUpdate ?? false} disabled={disabled || status === null}

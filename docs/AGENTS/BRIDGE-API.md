@@ -187,25 +187,25 @@ JS interface count is checked from source by `scripts/check-bridge-symmetry.mjs`
 别名 `virtual-1` 映射到运行时 displayId；viewer Surface 重挂、实时多屏选择与 BrowserHost 视口的
 设备回归仍未收口（见 `known-gaps.md`）。本节记录代码施工状态，不表示已通过设备验证。
 
-## Linux 外部插件宿主（实验性，默认不启用）
+## Linux 内部插件宿主（实验性 internal，默认不启用）
 
-`dsh-android-linux-env` 提供惰性 Cordis 服务 `linuxPluginHost` 和 `/api/android/linux-environment/*`，不新增 Kotlin 桥方法或默认 Linux 工具。bootstrap 与 runtime 均为独立 GitHub Release 资产；APK/profile 不默认注入二者。用户显式把 bootstrap 加入引擎插件注入目录并启用、重载后，由该外部插件提供 `linuxBootstrap` 服务，客户端一次本地状态探测后才注册「Linux环境」。移除插件并重载后入口消失。发布 APK 或插件 Release 不改变此选择。
+`dsh-android-linux-env` 提供惰性 Cordis 服务 `linuxPluginHost` 和 `/api/android/linux-environment/*`，不新增 Kotlin 桥方法或默认 Linux 工具。bootstrap 与 runtime 都是**我们自己的实验性内部插件**：随应用放入**内置（hard）插件目录**，但**默认不启用——存在不等于启用**。应用更新或插件新版本发布都不会启用它们，也不会重新启用用户停用的插件。只有该内部插件真的被启用（服务在场）后，客户端一次本地状态探测才注册「Linux环境」；停用后入口消失。
 
 | HTTP | 路径后缀 | 语义 |
 |---|---|---|
-| GET | `status` | 只读 bootstrap 真源；未注入返回 503，客户端不注册入口。 |
+| GET | `status` | 只读 bootstrap 真源；未启用（无该服务）返回 503，客户端不注册入口。 |
 | POST | `check` | `checkForUpdates({source:'manual'})`，只检查，不安装，不要求启用自动更新。 |
-| POST | `install` | `confirmed:true` 后安装所选 `debian-minimal`，下载/摘要/解包/资产事务均由外部 bootstrap/runtime 负责。 |
-| POST | `reinstall` / `uninstall` | `confirmed:true` 后委托外部 bootstrap，UI 先提示备份与数据移除。 |
+| POST | `install` | `confirmed:true` 后安装所选 `debian-minimal`，下载/摘要/解包/资产事务均由内部 bootstrap 负责。 |
+| POST | `reinstall` / `uninstall` | `confirmed:true` 后委托内部 bootstrap，UI 先提示备份与数据移除。 |
 | POST | `auto-update-on` / `auto-update-off` | `confirmed:true` 后只设置持久化偏好，不立即检查或安装。初始偏好关闭。 |
 
-每条路由在读取请求体、访问 bootstrap 前执行 `authorizeMobileRoute`（connection 的同源会话优先，回环 control token 兜底），响应 `no-store`，错误方法 405；确认请求体限 1024 字节，操作并发返回 409。版本变化自动检查仅在 bootstrap 服务就绪、已有安装基线、自动更新开启且当前 `DSH_APP_VERSION` 与基线不同时发起；同一应用版本的持久化尝试记录由 bootstrap 去重。无网络恢复/启动定时轮询。自动更新必须保持用户已经选定的注入/启用状态和 runtime，不因新 Release 新增注入。
+上述每条路由在读取请求体、访问 bootstrap 前执行 `authorizeMobileRoute`（connection 的同源会话优先，回环 control token 兜底），响应 `no-store`，错误方法 405；确认请求体限 1024 字节，操作并发返回 409。版本变化自动检查仅在内部 bootstrap 服务就绪（已启用）、已有安装基线、自动更新开启且当前 `DSH_APP_VERSION` 与基线不同时发起；同一应用版本的持久化尝试记录由 bootstrap 去重。无网络恢复/启动定时轮询。自动更新必须保持用户已经选定的启用状态与 runtime，不因新 Release 或应用升级启用插件、也不重新启用用户停用的插件。
 
-bootstrap 调用 `linuxPluginHost.install({directory,entry='lib/index.js',config,enable})` 时，目录和入口 realpath 必须属于 `$DSH_FILES_DIR/linux-environment/plugins`（外部 bootstrap 现行布局为 `plugins/runtime/<sha256>`，宿主同时支持平铺与 `<name>/<version>` 两级）；宿主只动态导入 Cordis 插件并等待 fiber 激活，不复制下载/校验/解包实现，返回 `{directory, active}`（重复激活幂等）。`enable` 与事务回滚句柄由 bootstrap 拥有，宿主只接受并忽略，不做启用决策。失败、依赖未就绪或卸载时 dispose；版本替换先卸载旧 scope。`uninstall()` 仅释放 scope，资产清理由 bootstrap 的事务层拥有。`DSH_FILES_DIR` 已由 EngineManager 注入为 `context.filesDir`，缺失不使用 cwd 或外部共享存储回落。
+bootstrap 调用 `linuxPluginHost.install({directory,entry='lib/index.js',config,enable})` 时，目录和入口 realpath 必须属于 `$DSH_FILES_DIR/linux-environment/plugins`（内部 bootstrap 现行布局为 `plugins/runtime/<sha256>`，宿主同时支持平铺与 `<name>/<version>` 两级）；宿主只动态导入 Cordis 插件并等待 fiber 激活，不复制下载/校验/解包实现，返回 `{directory, active}`（重复激活幂等）。`enable` 与事务回滚句柄由 bootstrap 拥有，宿主只接受并忽略，不做启用决策。失败、依赖未就绪或卸载时 dispose；版本替换先卸载旧 scope。`uninstall()` 仅释放 scope，资产清理由 bootstrap 的事务层拥有。`DSH_FILES_DIR` 已由 EngineManager 注入为 `context.filesDir`，缺失不使用 cwd 或外部共享存储回落。
 
-`linuxPluginHost.isInjected({name?, runtimeId?, directory?})` 是**注入成员关系的只读权威**，返回 `{injected, active, directory?}`：接受显式 `directory`，或按单段目录名（拒绝分隔符与 `.`/`..`）查 `$DSH_FILES_DIR/linux-environment/plugins/<name>`，支持平铺与 `<name>/<version>` 两级并在多版本时优先取最新已验证目录；只读 stat/realpath，**不创建、不修复、不重新下载**，bootstrap 只能用它做只读判定。因此用户手工删除的 runtime 不会被新 Release 或新应用版本复活：显式查询未命中即返回 `injected:false`（不回落到内存中已激活的目录），随后的 `install()` 以「not present in the injection directory」失败关闭；bootstrap 应随之持久化 `injectionActivated:false` 且不再安装。跨出根目录的符号链接与越级目录名同样判为未注入。首次安装与自动更新都必须显式确认（`confirmed:true`，install/reinstall 还需 `activate:true`）后才调用宿主激活，宿主本身不发起任何注入。
+`linuxPluginHost.isInjected({name?, runtimeId?, directory?})` 是**在场（presence）的只读权威**，返回 `{injected, active}`（含 `directory`）：接受显式 `directory`，或按单段目录名（拒绝分隔符与 `.`/`..`）查 `$DSH_FILES_DIR/linux-environment/plugins/<name>`，支持平铺与 `<name>/<version>` 两级并在多版本时优先取最新已验证目录；只读 stat/realpath，**不创建、不修复、不重新下载**，bootstrap 只能用它做只读判定。因此用户手工移除的 runtime 不会被新 Release 或新应用版本复活：显式查询未命中即返回在场 `false`（不回落到内存中已激活的目录），随后的 `install()` 以「not present in the injection directory」失败关闭；bootstrap 应随之持久化未启用并停止安装。跨出根目录的符号链接与越级目录名同样判为不在场。**在场不等于启用**：首次安装与自动更新都必须显式确认（`confirmed:true`，install/reinstall 还需 `activate:true`）后才调用宿主激活，宿主本身不发起任何启用。
 
 `status` 归一映射同时接受 Bionilux 定稿字段（`installed/version/mobileVersion/autoUpdate/availableVersion/updateAvailable/updateBlocked/busy/operation/runtime/injectionActivated/enabled/pluginReleaseUrls/lastCheckAt/error`）与此前提案字段（`installedLinuxVersion/currentMobileVersion/autoUpdateEnabled/latestReleaseVersion/runtimeId/plugins.*.releaseUrl/lastError`）；`updateBlocked` 时不下发候选版本但保留不兼容原因，缺版本号显示 `unknown` 而不留空。自动检查门为「已安装 + `injectionActivated !== false` + `enabled !== false` + 开关开启 + 应用版本与安装时记录不同」，每个应用版本一次，由服务侧持久化去重。
 
-页面状态由 `normalizeLinuxStatus` 映射，同时接受 Bionilux 定稿字段与此前提案字段；其中两条插件 `releaseUrl` 来自 bootstrap 状态（`pluginReleaseUrls` 或 `plugins.*.releaseUrl`），不拼接默认最新版本。Linux rootfs 是 glibc 运行支持，不是安全沙箱；guest root 不等于 Android root；Termux/Bionic Bash 与 Debian/glibc Linux Bash 分开展示，共享 glibc Node 不替换原有 Termux Node。已安装但 runtime 注入被手工移除时，页面显式显示「自动更新已停用」并要求重新显式注入，而不是静默停更。外部 bootstrap 成品接线及真实安装验收状态见 `known-gaps.md`。
+页面状态由 `normalizeLinuxStatus` 映射，同时接受 Bionilux 定稿字段与此前提案字段；其中两条插件 `releaseUrl` 来自 bootstrap 状态（`pluginReleaseUrls` 或 `plugins.*.releaseUrl`），不拼接默认最新版本。Linux rootfs 是 glibc 运行支持，不是安全沙箱；guest root 不等于 Android root；Termux/Bionic Bash 与 Debian/glibc Linux Bash 分开展示，共享 glibc Node 不替换原有 Termux Node。已安装但 runtime 被手工移除时，页面显式显示「自动更新已停用」并要求重新放回并启用，而不是静默停更。内部 bootstrap 成品接线及真实安装验收状态见 `known-gaps.md`。
 

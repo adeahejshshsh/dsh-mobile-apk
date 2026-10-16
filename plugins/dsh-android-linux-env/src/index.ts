@@ -344,6 +344,9 @@ function cacheExecutePayload(plan: CleanupPlan): Record<string, unknown> {
 export function apply(ctx: Context, _config: Record<string, unknown> = {}) {
   // 授权档位权威 = bridge 服务（androidPrivilege，patch 顺序 bridge 先于本插件）
   const svc = (ctx as unknown as { androidPrivilege?: { status(): { tier: string } } }).androidPrivilege
+  // 实验性内部 Linux 插件（bootstrap + runtime）：包随机放在内置（hard）插件目录，但**默认不启用**
+  // ——存在不等于启用。宿主只提供激活/卸载与只读在场查询；是否启用、何时安装一律由外部 bootstrap
+  // 服务与用户显式确认决定，本插件不下载、不解包、不替用户启用。
   const pluginHost = createLinuxPluginHost({
     root: process.env.DSH_FILES_DIR ? join(process.env.DSH_FILES_DIR, 'linux-environment', 'plugins') : undefined,
     activate: (plugin, config) => ctx.plugin(plugin as Parameters<Context['plugin']>[0], config),
@@ -353,6 +356,8 @@ export function apply(ctx: Context, _config: Record<string, unknown> = {}) {
     ctx.effect(() => () => pluginHost.uninstall())
   }
   if (typeof ctx.inject === 'function') {
+    // 版本变化检查只在内部 bootstrap 插件**已启用**（服务在场）后发生一次，且还需应用版本变化与
+    // 用户开启自动更新；服务缺席（未启用）不重试、不轮询。
     ctx.inject(['linuxBootstrap'], scope => {
       const bootstrap = serviceOf<LinuxBootstrap>(scope, 'linuxBootstrap')
       if (bootstrap) void checkLinuxEnvironmentAfterMobileChange(bootstrap).catch(() => {

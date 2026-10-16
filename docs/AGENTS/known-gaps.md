@@ -36,9 +36,13 @@
 | 键盘判据在本机语义不稳定 | `mInputShown` 在 CDP 复验读到 false、ADB 探针读到 true；且新建会话后上游聚焦新 composer 本身会弹键盘，属标准 UX。 | 测试侧**只记录键盘数值、不作 FAIL 依据**（避免把正常 UX 写成缺陷）。#349 的「不弹键盘」半条同样待真机复验。 |
 | `visualViewport` 判空曾漏 undefined（本轮已修） | `keyboard-boundary.ts` 原按 `vv === null` 判空，漏掉 `visualViewport` 求值为 `undefined` 的宿主，读 `.height` 抛 TypeError 并打断视口复算链。 | 已修为 `window.visualViewport ?? null` 并补 2 条回归用例（含反证）。记入 gotchas 284。 |
 
-## Linux 外部插件的待接入边界（2026-10-16）
+## Linux 内部插件的待接入边界（2026-10-16）
 
-本仓只交付实验性、默认不启用的宿主服务/API 与条件设置入口；没有把 `linux-bootstrap` 或 runtime 加入快照、静态 profile 或依赖。`kelai141/dsh-bionilux` 的外部 bootstrap 需显式注入并提供 `linuxBootstrap` 服务、调用 `linuxPluginHost`（含 `isInjected` 判定注入成员关系后再激活）；构造/下载/解包/运行时 manager 装配由外部插件拥有。本仓单测以真实 Cordis 激活/卸载、注入成员关系与受控 bootstrap 服务覆盖边界，不能代替外部成品的集成。
+本仓交付实验性、默认不启用的宿主服务/API 与条件设置入口。bootstrap 与 runtime 是**我们自己的实验性内部插件**：按用户口径应随应用放入**内置（hard）插件目录**，但**默认不启用（存在不等于启用）**；应用更新或插件新版本发布都不得启用插件，也不得重新启用用户停用的插件。
+
+现状与缺口（如实登记）：这两个包由 `kelai141/dsh-bionilux` 构建发布，本仓当前尚未把它们放进内置目录 —— 本仓的内置目录由注入集（`scripts/plugin-dirs.json` 的自包含目录、`vendor/` 固化包）与引擎 overlay 共同决定，而 `plugins/` 下没有这两个包的源码/产物。因此"放进内置目录"这一步需要它们的构建产物按本仓注入链登记后才能完成：加入注入集时必须同时在 `scripts/contract.json` 的 `inserted` 登记并挂载，否则 `check-patch-mounts.mjs`（双向）与 `check-contract.mjs`（幽灵登记）会判红；且**不能**用 `disabled:` 顶层行表达"在场不启用"——`check-contract.mjs` 要求禁用目标必须存在于上游，本仓自有插件用该形态会被判成空指向而失败。
+
+`kelai141/dsh-bionilux` 的内部 bootstrap 需注入后提供 `linuxBootstrap` 服务、调用 `linuxPluginHost`（含 `isInjected` 在场查询）后再激活；构造/下载/解包/运行时 manager 装配由 bootstrap 拥有。本仓单测以真实 Cordis 激活/卸载、在场查询与受控 bootstrap 服务覆盖边界，不能代替成品的集成。
 
 设备验收仅覆盖未注入状态：不显示 Linux 设置入口、API 503、无运行目录或 Linux 工具自动创建；没有执行真实 Linux 安装、更新、重装、卸载，也没有打包最终 APK 或完成真机验收。这些不登记为通过。用户当前要求两个插件均外部 opt-in，发布不得自动修改注入目录；实际启用与完整安装验收须基于用户显式注入的外部成品另行完成。
 
