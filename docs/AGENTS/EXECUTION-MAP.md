@@ -2064,6 +2064,8 @@ app/src/main/java/com/dsharnessmobile/shell/BrowserHostProfile.kt
 app/src/main/java/com/dsharnessmobile/shell/ForegroundPageRecoveryPolicy.kt
 app/src/main/java/com/dsharnessmobile/shell/SnapshotFingerprintPolicy.kt
 app/src/main/java/com/dsharnessmobile/shell/ProfilePackageManifest.kt
+app/src/main/java/com/dsharnessmobile/shell/LinuxAssetIO.kt
+app/src/main/java/com/dsharnessmobile/shell/LinuxAssetPrepare.kt
 app/src/test/java/com/dsharnessmobile/shell/ProfilePackageManifestTest.kt
 app/src/test/java/com/dsharnessmobile/shell/OwnershipRepairCoreTest.kt
 app/src/test/java/com/dsharnessmobile/shell/RootMaintenanceLeaseTest.kt
