@@ -1,0 +1,256 @@
+import { readdir, realpath, stat } from 'node:fs/promises'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { FiberState } from '@deepseek-ai/cordis'
+import {
+  authorizeMobileRoute, sendMobileRouteRejection,
+  type MobileRouteRequest, type MobileRouteResponse, type MobileRouteAuthOptions,
+} from '@dsh-android/dsh-android-bridge'
+
+export interface BootstrapStatus {
+  autoUpdateEnabled: boolean
+  currentMobileVersion: string
+  installedSystemMobileVersion?: string | null
+  mobileVersionChanged?: boolean
+  lastAutomaticCheckMobileVersion?: string | null
+  installedLinuxVersion?: string | null
+  runtimeId?: string | null
+  latestReleaseVersion?: string | null
+  updateAvailable?: boolean
+  updateBlocked?: boolean
+  lastCheckAt?: string | null
+  lastError?: string | null
+  operation?: string | null
+  plugins?: { bootstrap?: { releaseUrl?: string }; runtime?: { releaseUrl?: string } }
+}
+
+export interface LinuxBootstrap {
+  status(): BootstrapStatus | Promise<BootstrapStatus>
+  checkForUpdates(options: { source: 'manual' | 'mobile-version-change' }): unknown | Promise<unknown>
+  install(options: { runtimeId: string }): unknown | Promise<unknown>
+  reinstall(): unknown | Promise<unknown>
+  uninstall(): unknown | Promise<unknown>
+  setAutoUpdateEnabled(enabled: boolean): unknown | Promise<unknown>
+}
+
+interface PluginScope { dispose(): unknown | Promise<unknown>; state?: FiberState }
+export interface PluginInstall { directory: string; entry?: string; config?: Record<string, unknown> }
+/** Injection knowledge is limited to what the user actually placed under the bootstrap root. */
+export interface PluginInjectionQuery { name?: string; runtimeId?: string }
+export interface PluginInjectionState { injected: boolean; active: boolean; directory?: string }
+export interface LinuxPluginHost {
+  install(options: PluginInstall): Promise<void>
+  uninstall(): Promise<void>
+  isInjected(query: PluginInjectionQuery): Promise<PluginInjectionState>
+}
+
+/** Bootstrap supplies an integrity-verified, versioned directory; only Cordis activation lives here. */
+export function createLinuxPluginHost(options: {
+  root: string | undefined
+  activate(plugin: unknown, config: Record<string, unknown>): PluginScope | PromiseLike<PluginScope>
+  importModule?: (url: string) => Promise<unknown>
+}): LinuxPluginHost {
+  let scope: PluginScope | undefined
+  let activeDirectory: string | undefined
+  let operation: Promise<void> = Promise.resolve()
+  const serialize = (fn: () => Promise<void>) => {
+    const next = operation.then(fn)
+    operation = next.catch(() => {})
+    return next
+  }
+  const inside = (root: string, target: string) => {
+    const path = relative(root, target)
+    return path !== '' && path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path)
+  }
+  /** A name is a single directory segment: separators would escape the bootstrap-owned root. */
+  const SAFE_NAME = /^[A-Za-z0-9@][A-Za-z0-9@._-]*$/
+  const defaultEntry = (input?: string) => input ?? 'lib/index.js'
+  const isFile = async (path: string) => {
+    try { return (await stat(path)).isFile() } catch { return false }
+  }
+  const rootReal = async () => {
+    if (!options.root) return undefined
+    try { return await realpath(options.root) } catch { return undefined }
+  }
+  /**
+   * Injection membership is read straight from the directory the user populated.
+   * Nothing is created, repaired or re-downloaded here, so a manually removed plugin
+   * stays removed and cannot be resurrected by a new release or app version.
+   */
+  const findInjected = async (root: string, query: PluginInjectionQuery, entry: string) => {
+    for (const name of [query.name, query.runtimeId]) {
+      if (typeof name !== 'string' || !SAFE_NAME.test(name)) continue
+      let base: string
+      try { base = await realpath(join(root, name)) } catch { continue }
+      if (!inside(root, base)) continue
+      if (await isFile(join(base, entry))) return base
+      const versions = (await readdir(base, { withFileTypes: true }).catch(() => []))
+        .filter(dirent => dirent.isDirectory()).map(dirent => dirent.name).sort().reverse()
+      for (const version of versions) {
+        const candidate = join(base, version)
+        if (await isFile(join(candidate, entry))) return candidate
+      }
+    }
+    return undefined
+  }
+  return {
+    install: input => serialize(async () => {
+      const root = await rootReal()
+      if (root === undefined) throw new Error('DSH_FILES_DIR is required to activate the Linux runtime plugin')
+      const directory = await realpath(input.directory).catch(() => undefined)
+      if (directory === undefined || !inside(root, directory)) {
+        throw new Error('Runtime plugin is not present in the injection directory; add it explicitly before installing')
+      }
+      const entry = await realpath(resolve(directory, defaultEntry(input.entry)))
+      if (!inside(directory, entry)) throw new Error('Runtime plugin entry must be inside its verified directory')
+      if (scope && activeDirectory === directory) return
+      const plugin = await (options.importModule ?? (url => import(url)))(pathToFileURL(entry).href)
+      if (typeof plugin !== 'object' || plugin === null || typeof (plugin as { apply?: unknown }).apply !== 'function') {
+        throw new Error('Runtime bundle must export a Cordis apply function')
+      }
+      if (scope) await scope.dispose()
+      scope = undefined
+      activeDirectory = undefined
+      const activation = options.activate(plugin, input.config ?? {})
+      let activated: PluginScope | undefined
+      try {
+        activated = await activation
+        if (activated.state !== undefined && activated.state !== FiberState.ACTIVE) {
+          throw new Error('Runtime Cordis plugin did not become active')
+        }
+        scope = activated
+        activeDirectory = directory
+      } catch (error) {
+        const failed = activated ?? ('dispose' in activation ? activation : undefined)
+        await failed?.dispose()
+        throw error
+      }
+    }),
+    uninstall: () => serialize(async () => {
+      if (scope) await scope.dispose()
+      scope = undefined
+      activeDirectory = undefined
+    }),
+    isInjected: async query => {
+      const root = await rootReal()
+      if (root === undefined) return { injected: false, active: false }
+      const directory = await findInjected(root, query, defaultEntry())
+      if (directory !== undefined) {
+        return { injected: true, active: scope !== undefined && activeDirectory === directory, directory }
+      }
+      // No name matched: report the currently activated directory only if it still exists on disk,
+      // so a manual deletion is visible instead of being masked by stale in-memory state.
+      if (activeDirectory !== undefined && inside(root, activeDirectory) && await isFile(join(activeDirectory, defaultEntry()))) {
+        return { injected: true, active: scope !== undefined, directory: activeDirectory }
+      }
+      return { injected: false, active: false }
+    },
+  }
+}
+
+export function normalizeLinuxStatus(status: BootstrapStatus) {
+  return {
+    installed: Boolean(status.installedLinuxVersion),
+    version: status.installedLinuxVersion ?? undefined,
+    mobileVersion: status.currentMobileVersion,
+    installedSystemMobileVersion: status.installedSystemMobileVersion ?? undefined,
+    autoUpdate: status.autoUpdateEnabled,
+    availableVersion: status.updateAvailable && !status.updateBlocked ? status.latestReleaseVersion ?? undefined : undefined,
+    busy: Boolean(status.operation && status.operation !== 'idle'),
+    runtime: status.runtimeId ? { id: status.runtimeId, label: status.runtimeId === 'debian-minimal' ? 'Debian minimal' : status.runtimeId } : undefined,
+    plugins: status.plugins,
+    error: status.lastError ?? (status.updateBlocked ? '此系统版本与当前应用不兼容，暂不能安装更新。' : undefined),
+  }
+}
+
+export async function checkLinuxEnvironmentAfterMobileChange(bootstrap: LinuxBootstrap): Promise<void> {
+  const status = await bootstrap.status()
+  if (!status.autoUpdateEnabled || !status.installedLinuxVersion || !status.installedSystemMobileVersion ||
+    !status.currentMobileVersion || status.installedSystemMobileVersion === status.currentMobileVersion ||
+    status.lastAutomaticCheckMobileVersion === status.currentMobileVersion ||
+    (status.operation && status.operation !== 'idle')) return
+  await bootstrap.checkForUpdates({ source: 'mobile-version-change' })
+}
+
+const ROUTES = [
+  ['status', '/api/android/linux-environment/status'],
+  ['check', '/api/android/linux-environment/check'],
+  ['install', '/api/android/linux-environment/install'],
+  ['reinstall', '/api/android/linux-environment/reinstall'],
+  ['uninstall', '/api/android/linux-environment/uninstall'],
+  ['auto-update-on', '/api/android/linux-environment/auto-update-on'],
+  ['auto-update-off', '/api/android/linux-environment/auto-update-off'],
+] as const
+interface Request extends MobileRouteRequest { [Symbol.asyncIterator](): AsyncIterator<Buffer | string> }
+interface WebServer { register(route: { kind: 'exact'; path: string; handler(req: Request, res: MobileRouteResponse): Promise<void> }): () => void }
+
+async function readConfirmation(req: Request): Promise<boolean> {
+  let size = 0
+  const chunks: Buffer[] = []
+  for await (const chunk of req) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    size += bytes.length
+    if (size > 1024) throw new Error('Request body is too large')
+    chunks.push(bytes)
+  }
+  const value: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+  return typeof value === 'object' && value !== null && (value as { confirmed?: unknown }).confirmed === true
+}
+
+export function registerLinuxEnvironmentRoutes(options: {
+  webServer: WebServer
+  effect(register: () => () => void): unknown
+  auth(): MobileRouteAuthOptions
+  bootstrap(): LinuxBootstrap | undefined
+}) {
+  let busy = false
+  const send = (res: MobileRouteResponse, code: number, body: unknown) => {
+    res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+    res.end(JSON.stringify(body))
+  }
+  for (const [action, path] of ROUTES) {
+    options.effect(() => options.webServer.register({
+      kind: 'exact',
+      path,
+      handler: async (req, res) => {
+        const rejection = authorizeMobileRoute(req, options.auth())
+        if (rejection !== undefined) { sendMobileRouteRejection(res, rejection); return }
+        const method = action === 'status' ? 'GET' : 'POST'
+        if (req.method !== method) {
+          res.writeHead(405, { allow: method, 'cache-control': 'no-store' })
+          res.end()
+          return
+        }
+        const bootstrap = options.bootstrap()
+        if (!bootstrap) { send(res, 503, { error: 'Linux bootstrap 插件尚未启用，请先将外部插件加入引擎插件注入目录并启用，再重载引擎。' }); return }
+        if (action === 'status') {
+          try {
+            const status = normalizeLinuxStatus(await bootstrap.status())
+            send(res, 200, { ...status, busy: busy || status.busy })
+          }
+          catch { send(res, 500, { error: '无法读取 Linux 环境状态。' }) }
+          return
+        }
+        if (busy) { send(res, 409, { error: '另一项 Linux 环境操作正在进行，请稍后重试。' }); return }
+        busy = true
+        try {
+          if (action !== 'check') {
+            let confirmed = false
+            try { confirmed = await readConfirmation(req) } catch { send(res, 400, { error: '请求确认信息无效。' }); return }
+            if (!confirmed) { send(res, 400, { error: '操作需要用户明确确认。' }); return }
+          }
+          switch (action) {
+            case 'check': await bootstrap.checkForUpdates({ source: 'manual' }); break
+            case 'install': await bootstrap.install({ runtimeId: 'debian-minimal' }); break
+            case 'reinstall': await bootstrap.reinstall(); break
+            case 'uninstall': await bootstrap.uninstall(); break
+            case 'auto-update-on': await bootstrap.setAutoUpdateEnabled(true); break
+            case 'auto-update-off': await bootstrap.setAutoUpdateEnabled(false); break
+          }
+          send(res, 200, normalizeLinuxStatus(await bootstrap.status()))
+        } catch { send(res, 500, { error: 'Linux 环境操作失败，请检查环境状态与日志后重试。' }) }
+        finally { busy = false }
+      },
+    }))
+  }
+}

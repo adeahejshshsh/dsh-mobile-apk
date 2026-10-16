@@ -36,6 +36,12 @@
 | 键盘判据在本机语义不稳定 | `mInputShown` 在 CDP 复验读到 false、ADB 探针读到 true；且新建会话后上游聚焦新 composer 本身会弹键盘，属标准 UX。 | 测试侧**只记录键盘数值、不作 FAIL 依据**（避免把正常 UX 写成缺陷）。#349 的「不弹键盘」半条同样待真机复验。 |
 | `visualViewport` 判空曾漏 undefined（本轮已修） | `keyboard-boundary.ts` 原按 `vv === null` 判空，漏掉 `visualViewport` 求值为 `undefined` 的宿主，读 `.height` 抛 TypeError 并打断视口复算链。 | 已修为 `window.visualViewport ?? null` 并补 2 条回归用例（含反证）。记入 gotchas 284。 |
 
+## Linux 外部插件的待接入边界（2026-10-16）
+
+本仓只交付实验性、默认不启用的宿主服务/API 与条件设置入口；没有把 `linux-bootstrap` 或 runtime 加入快照、静态 profile 或依赖。`kelai141/dsh-bionilux` 的外部 bootstrap 需显式注入并提供 `linuxBootstrap` 服务、调用 `linuxPluginHost`（含 `isInjected` 判定注入成员关系后再激活）；构造/下载/解包/运行时 manager 装配由外部插件拥有。本仓单测以真实 Cordis 激活/卸载、注入成员关系与受控 bootstrap 服务覆盖边界，不能代替外部成品的集成。
+
+设备验收仅覆盖未注入状态：不显示 Linux 设置入口、API 503、无运行目录或 Linux 工具自动创建；没有执行真实 Linux 安装、更新、重装、卸载，也没有打包最终 APK 或完成真机验收。这些不登记为通过。用户当前要求两个插件均外部 opt-in，发布不得自动修改注入目录；实际启用与完整安装验收须基于用户显式注入的外部成品另行完成。
+
 ## 历史事项不自动关闭
 
 旧登记的浏览器自动落位、看门狗恢复入口、API<30 截图回落、多 ROM 限制、动效、滚动条、低置信度依赖判据等，保留当时证据。应按当前源码逐项分类为已改、仍存在或仅特定设备待验；不得把旧“未修”直接当当前事实，也不得把归档当完成。

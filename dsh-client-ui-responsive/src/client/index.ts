@@ -49,6 +49,7 @@ import { DevSection } from './dev-section/DevSection.tsx'
 import { PhoneControlSection } from './dev-section/phone-control.tsx'
 import { NotifySettingsSection } from './dev-section/notify-settings.tsx'
 import { ModelCapabilitySection } from './dev-section/model-capability.tsx'
+import { LinuxEnvironmentSection, registerLinuxSettingsWhenEnabled } from './dev-section/linux-environment.tsx'
 import { DEV_SECTION_CSS } from './dev-section/dev-section.css.ts'
 import { GeneralSettings } from './general-settings/GeneralSettings.tsx'
 import { ThemeBridge } from './theme-bridge.ts'
@@ -316,6 +317,13 @@ export function apply(ctx: ClientContext): void {
     order: 96,
     label: () => '模型能力',
   }, ModelCapabilitySection))
+
+  ctx.effect(() => registerLinuxSettingsWhenEnabled(() => ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'linux-environment',
+    order: 95,
+    label: () => 'Linux环境',
+  }, LinuxEnvironmentSection))))
 
   // Android general-settings rows (issue #59): immersive status-bar toggle.
   // 0.13.3 (D6): the font-size slider retired — upstream ui-theme fontSize

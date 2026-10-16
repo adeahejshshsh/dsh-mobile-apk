@@ -30,6 +30,10 @@ import {
 import { PROBE_BINARIES, REQUIRED_TOOLCHAIN, TOOLCHAIN_REPRESENTATIVE } from '@dsh-android/dsh-shell-termux'
 // 块 E：白名单扫描/执行/标签（设计与判据见 runtime-cache.ts 头注释）。
 import { displayLabel, executeCleanup, planCleanup, type CleanupPlan } from './runtime-cache.js'
+import {
+  createLinuxPluginHost, checkLinuxEnvironmentAfterMobileChange, registerLinuxEnvironmentRoutes,
+  type LinuxBootstrap,
+} from './linux-environment.js'
 
 export const name = 'dsh-android-linux-env'
 export const inject = ['tools', 'webServer', 'androidPrivilege'] as const
@@ -197,7 +201,7 @@ function recipeExport(ctx: Context, session?: unknown): Record<string, unknown> 
 function tools(ctx: Context, svc: { status(): { tier: string } } | undefined) {
   const statusTool = defineTool({
     name: 'android_toolchain_status',
-    description: '工具链状态：预装清单存在性、dpkg 数据库初始化状态、ADB 授权档位。用于诊断「某工具为什么不可用」。',
+    description: 'Termux / Bionic Bash 工具链状态：预装清单、dpkg 初始化、ADB 档位；不代表独立的 Debian / glibc Linux Bash 环境状态。',
     parameters: {},
     output: {
       schema: {
@@ -216,7 +220,7 @@ function tools(ctx: Context, svc: { status(): { tier: string } } | undefined) {
       },
       render: (_args, v: Record<string, unknown>) => [
         // 0.13.8 #172：adbTier 是部署默认档位视图（非通道能力门）——文案如实标注，防模型误读为未授权
-        { type: 'text', text: `工具链 ${String(v.prefix)}：${String(v.toolchainState ?? 'unknown')}（缺失 ${((v.missing as string[] | undefined) ?? []).join(', ') || '无'}）/ dpkg ${String(v.dpkgPackages)} 包 / ADB 档位视图 ${String(v.adbTier)}（部署默认，非通道门；通道就绪以 android_privilege_status 为准）\n` + JSON.stringify(v.tools ?? {}) },
+        { type: 'text', text: `Termux / Bionic 工具链 ${String(v.prefix)}：${String(v.toolchainState ?? 'unknown')}（缺失 ${((v.missing as string[] | undefined) ?? []).join(', ') || '无'}）/ dpkg ${String(v.dpkgPackages)} 包 / ADB 档位视图 ${String(v.adbTier)}（部署默认，非通道门；通道就绪以 android_privilege_status 为准）\n` + JSON.stringify(v.tools ?? {}) },
       ],
     },
     // ST-16：每次调用实时 resolve 会话档位（exec.agent.session），不吃启动快照
@@ -227,7 +231,7 @@ function tools(ctx: Context, svc: { status(): { tier: string } } | undefined) {
   const recipeTool = defineTool({
     name: 'android_env_recipe',
     description:
-      '导出环境配方（可重放描述）：环境变量白名单 + dpkg 软件包清单 + 共享目录表 + 装配 patch。' +
+      '导出 Termux / Bionic 环境配方（不含独立 Debian / glibc Linux 环境）：环境变量白名单 + dpkg 清单 + 共享目录表 + 装配 patch。' +
       '不含任何密钥（.credentials/.env 值排除）。用于重置后重建或迁移。',
     parameters: {},
     output: {
@@ -340,6 +344,22 @@ function cacheExecutePayload(plan: CleanupPlan): Record<string, unknown> {
 export function apply(ctx: Context, _config: Record<string, unknown> = {}) {
   // 授权档位权威 = bridge 服务（androidPrivilege，patch 顺序 bridge 先于本插件）
   const svc = (ctx as unknown as { androidPrivilege?: { status(): { tier: string } } }).androidPrivilege
+  const pluginHost = createLinuxPluginHost({
+    root: process.env.DSH_FILES_DIR ? join(process.env.DSH_FILES_DIR, 'linux-environment', 'plugins') : undefined,
+    activate: (plugin, config) => ctx.plugin(plugin as Parameters<Context['plugin']>[0], config),
+  })
+  if (typeof ctx.provide === 'function') {
+    ctx.provide('linuxPluginHost', pluginHost)
+    ctx.effect(() => () => pluginHost.uninstall())
+  }
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['linuxBootstrap'], scope => {
+      const bootstrap = serviceOf<LinuxBootstrap>(scope, 'linuxBootstrap')
+      if (bootstrap) void checkLinuxEnvironmentAfterMobileChange(bootstrap).catch(() => {
+        ctx.logger?.('dsh-android-linux-env')?.warn?.('Linux 环境版本变化检查失败，请通过设置页重试。')
+      })
+    })
+  }
   for (const t of tools(ctx, svc)) ctx.tools.register(t)
   // register() 在运行期返回 disposer（上游 webserver 契约；file-open 同一形态）。声明为
   // `() => void` 才能走 ctx.effect——热重载/卸载必须回收路由，不留重复 handler。
@@ -348,6 +368,12 @@ export function apply(ctx: Context, _config: Record<string, unknown> = {}) {
     const authOptions = () => ({
       token: shellControlToken,
       connection: serviceOf<ConnectionRouteAuth>(ctx, 'connection'),
+    })
+    registerLinuxEnvironmentRoutes({
+      webServer: wsvc,
+      effect: register => ctx.effect(register),
+      auth: authOptions,
+      bootstrap: () => serviceOf<LinuxBootstrap>(ctx, 'linuxBootstrap'),
     })
     for (const [path, builder] of [
       ['/api/android/env/status', () => toolchainStatus(svc?.status().tier, ctx)],

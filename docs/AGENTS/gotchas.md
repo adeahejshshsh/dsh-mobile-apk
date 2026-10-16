@@ -1926,3 +1926,13 @@ Stellar 在跑、兼容层正常，本应用却在设置页与工具面一律报
 
 教训：**「某个包名装没装」是引导事实，不是能力事实**。能力判据要落在协议面（binder / 兼容 API 可达）上，
 否则每来一个兼容实现或分支都要在代码里再登记一次，而登记永远滞后于分支的出现。
+
+316. **Cordis 动态插件「拿到 fiber」不等于插件已经启用，失败的部分服务必须回收（Linux 宿主反证）**：
+
+现象：只执行 `ctx.plugin(module, config)` 就报告 runtime 安装成功，会把等待依赖的 PENDING fiber 或异步初始化失败的 fiber 当成可用环境；初始化中途提供的服务也可能残留。
+
+真因：Cordis `plugin()` 返回可等待的 fiber，调用本身只创建生命周期实例。`.await()`/thenable 完成后仍须确认 `FiberState.ACTIVE`，稳定的 PENDING 不代表已经执行插件。Context 本身也没有 `dispose()`，清理入口是所属 fiber 的 disposer。
+
+修法：Linux pluginHost 等待真实 fiber 激活，拒绝非 ACTIVE；失败时 dispose 已创建的 fiber，显式卸载及宿主卸载同样等待 disposer。目录以 `DSH_FILES_DIR` 为根做 realpath 校验，不把外部发行资产或 `$HOME/.dsh` 当作激活事实。bootstrap/runtime 都是用户显式注入的外部插件，缺 bootstrap 服务时 API503 且设置入口不注册。
+
+复验证据：`plugins/dsh-android-linux-env/test/linux-environment.test.mjs` 用真实 Cordis 跑异步服务提供/卸载，另注入启动异常和缺依赖反证，断言失败不能留下部分服务；注入成员用例覆盖平铺/版本化布局、越级目录名、外逃符号链接，以及「先激活 → 手工删除 → isInjected 转 false 且 install 失败关闭、运行中 scope 不被写回」这条不复活链。`dsh-client-ui-responsive/tests/linux-environment.spec.tsx` 断言缺 bootstrap 不注册入口，页面发现仅一次本地读，不触发远端更新。
