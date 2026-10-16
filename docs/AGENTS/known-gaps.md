@@ -52,7 +52,7 @@
 
 已落地并有反证：`LinuxAssetIO`（来源面/落点面/摘要+体量/解包面判据，复用 `SnapshotExtractor` 与 `SnapshotBundledAsset`）与 `LinuxAssetPrepare`（客户端触发入口，`@JavascriptInterface` `linuxAssetPrepare`/`linuxAssetPrepareStatus`）。五条负控（穿越、符号链接逃逸、炸弹、摘要不符、字节数不符）在 Kotlin 侧各有真实用例，且失败一律不发布产物。
 
-**仍未打通的四段（均不记通过）**：① 引擎侧 bootstrap 的 `linuxAssetIO` 透传/占位接线**未做**——引擎侧既解不了 `.tar.xz` 也调不动宿主，故 `downloadAsset`/`extractArchive` 的最终形态与「什么都没准备就失败关闭」都还没接；② **页面侧没有调用者**：`linuxAssetPrepare` 在 `android-bridge.ts` 里只是声明位，实际调用点应由 Linux 设置页（vendored bootstrap 客户端，上游所有）在用户点安装前发起，属于上游改动；③ bootstrap 包**仍未进注入集**，不随应用分发；④ 因此**没有任何端到端安装验收**，也没跑过真实 Release 产物。
+**仍未打通的四段（均不记通过）**：① ~~引擎侧 bootstrap 的 `linuxAssetIO` 透传/占位接线**未做**~~ —— **0.15.0 已接**：`plugins/dsh-android-linux-env/src/linux-host-asset-io.ts` 造出透传 + 失败关闭的 `downloadAsset`/`extractArchive`，负控见 `test/linux-host-asset-io.test.mjs`（无暂存 → 拒；摘要不符 → 拒；包名不符 → 拒；`unpackedSize` 不符 → 拒；恶意摘要 → 拒且环境根外哨兵不动；另有 1 正控证明真实暂存包可激活）。**但**该文件引出的**复用分支缺口**未闭合：bootstrap 命中自己写下的 `.dsh-asset-integrity.json` 时只做 `validatePackage`，**不重算归档摘要、不重算 `unpackedSize`**（实测：篡改已安装槽位入口 + 换掉保留归档后 `reinstall()` 仍直接激活，测试里有 tripwire 钉住）。该分支在**上游** `dsh-bionilux` 源码里，本仓 vendored 副本被 `check-vendored-linux-bootstrap.mjs` 逐字钉住**不可改**；上游补上复验后按正常流程 re-vendor 同步，届时 tripwire 会变红提示更新。② **页面侧没有调用者**：`linuxAssetPrepare` 在 `android-bridge.ts` 里只是声明位，实际调用点应由 Linux 设置页（vendored bootstrap 客户端，上游所有）在用户点安装前发起，属于上游改动；③ bootstrap 包**仍未进注入集**，不随应用分发；④ 因此**没有任何端到端安装验收**，也没跑过真实 Release 产物。
 
 ## 历史事项不自动关闭
 

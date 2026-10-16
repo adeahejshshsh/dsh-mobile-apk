@@ -1442,7 +1442,9 @@ flowchart TD
 
 #### P04 文件打开、Linux 环境与模型能力插件
 
-Linux 内部插件宿主适配（实验性 internal，默认不启用）：`plugins/dsh-android-linux-env/src/linux-environment.ts` 提供受鉴权的 Linux 生命周期 HTTP 路由和 `linuxPluginHost`。bootstrap 与 runtime 是我们自己的实验性内部插件，随应用放入内置（hard）插件目录，但**默认不启用——存在不等于启用**；应用更新或插件新版本发布都不会启用它们。宿主不下载、校验或解包资产，也不替用户启用；内部 bootstrap 被启用（服务在场）后设置页才注册「Linux环境」，未启用则 503 且无入口。runtime 目录由内部 bootstrap 完成事务后交给宿主，必须位于 `$DSH_FILES_DIR/linux-environment/plugins` 内；宿主核对 realpath 后动态 import，等待 Cordis fiber 激活，失败或卸载时 dispose。`linuxPluginHost.isInjected({name?,runtimeId?,directory?})` 只读上报**在场**（平铺或 `<name>/<version>` 布局，拒绝分隔符与外逃符号链接）并作为权威判定：显式查询未命中即不在场（不回落内存已激活目录），手工删除后 `install()` 以不在场失败关闭，新 Release 或新应用版本不会把插件重新写回。
+Linux 内部插件宿主适配（实验性 internal，默认不启用）：`plugins/dsh-android-linux-env/src/linux-environment.ts` 提供受鉴权的 Linux 生命周期 HTTP 路由和 `linuxPluginHost`；`plugins/dsh-android-linux-env/src/linux-host-asset-io.ts` 提供引擎侧 `linuxAssetIO` 的**宿主透传面**（见下）。bootstrap 与 runtime 是我们自己的实验性内部插件，随应用放入内置（hard）插件目录，但**默认不启用——存在不等于启用**；应用更新或插件新版本发布都不会启用它们。宿主不下载、校验或解包资产，也不替用户启用；内部 bootstrap 被启用（服务在场）后设置页才注册「Linux环境」，未启用则 503 且无入口。runtime 目录由内部 bootstrap 完成事务后交给宿主，必须位于 `$DSH_FILES_DIR/linux-environment/plugins` 内；宿主核对 realpath 后动态 import，等待 Cordis fiber 激活，失败或卸载时 dispose。`linuxPluginHost.isInjected({name?,runtimeId?,directory?})` 只读上报**在场**（平铺或 `<name>/<version>` 布局，拒绝分隔符与外逃符号链接）并作为权威判定：显式查询未命中即不在场（不回落内存已激活目录），手工删除后 `install()` 以不在场失败关闭，新 Release 或新应用版本不会把插件重新写回。
+
+引擎侧 `linuxAssetIO` 透传面（0.15.0，(iii) 的分工）：`plugins/dsh-android-linux-env/src/linux-host-asset-io.ts` 造出 bootstrap 必需的 `downloadAsset` / `extractArchive`（另导出 `createLinuxBootstrapConfig` 组装 `dataDir`/`releaseUrl`/`appVersionProvider`/`stagingDirectory`）。两者是**透传 + 失败关闭**，不是下载器：`downloadAsset` 只把宿主已暂存的 `<filesDir>/linux-environment/staging/<sha256>/asset.tar.xz` 路径交回 bootstrap（落点由 **manifest 摘要**推导，调用方不能指定；摘要格式与包含关系两道判据与 Kotlin `LinuxAssetPrepare.stagedDir` 同口径），`extractArchive` 按**归档自身摘要**定位宿主已解包的 `<sha256>/unpacked/` 并**复制**进 bootstrap 目标目录（复制而非移动——宿主那份要留着供复验）。宿主没准备、摘要不合规、树含符号链接一律抛带稳定码的错，**绝不回退成自行下载**。`stagingDirectory` 故意**不等于**宿主暂存目录：bootstrap 把 `<stagingDirectory>/<sha256>/` 当自己的包槽位（先 `rename` 到 `.backup-*`，成功后再递归删除），指向宿主暂存会**删掉宿主保留的归档与解包树**，而那两样正是复验依据。复验权威仍在 bootstrap：它自算归档 SHA-256 与体量、重算 `unpackedSize`、校验包名与入口之后才激活。**已知缺口**：bootstrap 的**复用**分支（`.dsh-asset-integrity.json` 命中时）只做 `validatePackage`，不重验归档与解包树；该分支在**上游源码**里，本仓 vendored 副本被 `check-vendored-linux-bootstrap.mjs` 逐字钉住不可改，须由上游补复验后按正常流程 re-vendor 同步（本仓测试有 tripwire 钉住现状）。
 
 版本变化链为 `linuxBootstrap 服务就绪 → 读取持久化安装版本/应用基线/自动更新偏好/尝试记录 → 基线不同时 checkForUpdates({source:'mobile-version-change'})`；偏好开关和页面挂载都不发更新检查。手动检查只调用 `source:'manual'`，安装、重装、卸载与开关写入均需 `confirmed:true`。设置页不持久化第二份系统状态，读写都回到 bootstrap；无该服务时 HTTP 503 且不注册设置入口。这两个实验性内部插件的发布不修改注入目录或默认启用状态。
 
@@ -2224,6 +2226,7 @@ plugins/dsh-android-file-open/src/route-auth.ts
 plugins/dsh-android-linux-env/src/index.ts
 plugins/dsh-android-linux-env/src/runtime-cache.ts
 plugins/dsh-android-linux-env/src/linux-environment.ts
+plugins/dsh-android-linux-env/src/linux-host-asset-io.ts
 plugins/dsh-linux-bootstrap/build.mjs
 glob:plugins/dsh-linux-bootstrap/src/*.js
 glob:plugins/dsh-linux-bootstrap/client/*.js
