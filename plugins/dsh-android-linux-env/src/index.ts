@@ -201,7 +201,7 @@ function recipeExport(ctx: Context, session?: unknown): Record<string, unknown> 
 function tools(ctx: Context, svc: { status(): { tier: string } } | undefined) {
   const statusTool = defineTool({
     name: 'android_toolchain_status',
-    description: 'Termux / Bionic Bash 工具链状态：预装清单、dpkg 初始化、ADB 档位；不代表独立的 Debian / glibc Linux Bash 环境状态。',
+    description: '工具链状态：Termux/Bionic Bash 清单、dpkg、ADB 档位；不含 Debian/glibc Linux。',
     parameters: {},
     output: {
       schema: {
@@ -220,7 +220,7 @@ function tools(ctx: Context, svc: { status(): { tier: string } } | undefined) {
       },
       render: (_args, v: Record<string, unknown>) => [
         // 0.13.8 #172：adbTier 是部署默认档位视图（非通道能力门）——文案如实标注，防模型误读为未授权
-        { type: 'text', text: `Termux / Bionic 工具链 ${String(v.prefix)}：${String(v.toolchainState ?? 'unknown')}（缺失 ${((v.missing as string[] | undefined) ?? []).join(', ') || '无'}）/ dpkg ${String(v.dpkgPackages)} 包 / ADB 档位视图 ${String(v.adbTier)}（部署默认，非通道门；通道就绪以 android_privilege_status 为准）\n` + JSON.stringify(v.tools ?? {}) },
+        { type: 'text',         text: `Termux/Bionic 工具链 ${String(v.prefix)}：${String(v.toolchainState ?? 'unknown')}（缺失 ${((v.missing as string[] | undefined) ?? []).join(', ') || '无'}）/ dpkg ${String(v.dpkgPackages)} 包 / ADB 档位视图 ${String(v.adbTier)}（部署默认，非通道门；通道就绪以 android_privilege_status 为准）\n` + JSON.stringify(v.tools ?? {}) },
       ],
     },
     // ST-16：每次调用实时 resolve 会话档位（exec.agent.session），不吃启动快照
@@ -231,8 +231,8 @@ function tools(ctx: Context, svc: { status(): { tier: string } } | undefined) {
   const recipeTool = defineTool({
     name: 'android_env_recipe',
     description:
-      '导出 Termux / Bionic 环境配方（不含独立 Debian / glibc Linux 环境）：环境变量白名单 + dpkg 清单 + 共享目录表 + 装配 patch。' +
-      '不含任何密钥（.credentials/.env 值排除）。用于重置后重建或迁移。',
+      '导出 Termux/Bionic 环境配方（env 白名单、dpkg、共享目录、patch；无密钥）。' +
+      '不含 Debian/glibc Linux 环境。',
     parameters: {},
     output: {
       schema: {
