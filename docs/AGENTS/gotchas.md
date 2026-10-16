@@ -1938,3 +1938,13 @@ Stellar 在跑、兼容层正常，本应用却在设置页与工具面一律报
 **0.15.0 追加（同一个坑的第二形态：把 fiber 包成普通对象会丢可等待性）**：`install` 要交出 bootstrap 要求的 `{manager}`，就得读激活作用域里的 `linuxRuntimeManager`，于是宿主把 fiber 适配成 `{state, dispose, get}` 的普通对象——普通对象**不可 await**，`await activation` 立刻返回，`state` 还在 PENDING，健康的异步 `apply()` 被误判成「did not become active」。修法：适配器保留 `ready`（承载 fiber 自身的 thenable 结算）并在 ACTIVE 判定前 await；`state` 用 getter 保持实时。适配器 `cordisScope` 由模块导出，`src/index.ts` 与单测共用同一份，避免「宿主能读到服务、测试读不到」的两侧漂移。
 
 复验证据：`plugins/dsh-android-linux-env/test/linux-environment.test.mjs` 用真实 Cordis 跑异步服务提供/卸载，另注入启动异常和缺依赖反证，断言失败不能留下部分服务；在场用例覆盖平铺/版本化布局、越级目录名、外逃符号链接，以及「先激活 → 手工移除 → 在场转 false 且 install 失败关闭、运行中 scope 不被写回」这条不复活链。`install` 无 manager 时报 bootstrap 原文错误、`rollback` 释放作用域、以及「只有 install/uninstall 齐全才算 manager」各有用例。`settings.section` 的归属反证：`dsh-client-ui-slots` 对 list 槽重复 id 抛错，故壳侧同名分区已于 0.15.0 撤回（见 modules.md），未启用时无入口。
+
+317. **会话标题跑马灯的 scroll 会误取消长按拖动**：
+
+现象：长标题会话长按后没有蓝色侧开接收区，短标题却能触发。CDP 事件轨迹显示，手指静止时标题后代连续发送 scroll，400ms 长按尚未达成就被清掉。
+
+真因：侧栏拖动在 document capture 上把所有 scroll 都当成列表滚动。标题 hover 跑马灯也会横向滚动，其事件经同一路径到达，造成误取消。
+
+修法：只在源行祖先容器实际滚动时取消待激活长按；忽略源行及后代的标题滚动。侧开落点先捕获会话身份，再结算排序，避免排序收尾重建节点后丢失打开动作。退出及卸载清除蓝区和动效计时器。
+
+复验证据：`dsh-client-ui-responsive/tests/conversation-dock.spec.ts` 同时覆盖标题滚动不取消、祖先滚动取消、排序收尾移除源节点仍准确打开、提前删除源节点不打开。设备轨迹与热推结论见本轮 PR。

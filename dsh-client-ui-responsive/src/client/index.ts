@@ -66,6 +66,7 @@ import { TopBarFold } from './mobile/top-bar-fold.ts'
 import { TOP_BAR_FOLD_CSS } from './mobile/top-bar-fold.css.ts'
 import { NewSessionDrawer } from './mobile/new-session-drawer.ts'
 import { SidebarSessionDismiss } from './mobile/sidebar-session-dismiss.ts'
+import { registerConversationDock, ConversationDropZone, conversationAddress, CONVERSATION_DOCK_CSS } from './mobile/conversation-dock.tsx'
 import { SidebarReorder } from './mobile/sidebar-reorder.ts'
 import { SIDEBAR_REORDER_CSS } from './mobile/sidebar-reorder.css.ts'
 import { EXTERNAL_OPEN_ID, externalOpenDefinition } from './mobile/external-open-paths.ts'
@@ -336,6 +337,9 @@ export function apply(ctx: ClientContext): void {
     order: 90,
     label: () => 'Android 显示',
   }, GeneralSettings))
+
+  ctx.inject(['resources', 'sidebarRight', 'sidebarRightTabs'], scope => { registerConversationDock(scope) })
+  ctx.effect(() => injectStyle('conversation-dock', CONVERSATION_DOCK_CSS), 'ui-responsive: conversation drop target')
 
   // ── Frame-wide entries ──────────────────────────────────────────────────
 
@@ -681,11 +685,18 @@ export function apply(ctx: ClientContext): void {
 
   // 0.14.7（Spec §2.2）侧边栏会话行长按拖动重排。与上面的 MobileSidebarGestures 靠 DOM 属性
   // 互斥（不靠注册顺序）：重排激活期间在 <html> 打标记，R1 手势据此拒绝认领 / 中途放弃。
-  ctx.effect(() => {
-    const reorder = new SidebarReorder()
+  ctx.inject(['sidebarRight'], scope => { scope.effect(() => {
+    const zone = new ConversationDropZone(id => {
+      const frame = document.querySelector('[data-dsh-frame]')
+      if (window.innerWidth < 1100 && frame && !frame.hasAttribute('data-sidebar-collapsed')) ctx.layout.toggleSidebar()
+      scope.sidebarRight.openResource(conversationAddress(id), {
+        kind: 'conversation', preferNewPane: window.matchMedia('(orientation: landscape)').matches && scope.sidebarRight.active()?.kind !== 'guide',
+      })
+    }, () => scope.sidebarRight.mounted.getSnapshot())
+    const reorder = new SidebarReorder(zone)
     reorder.attach()
-    return () => { reorder.detach() }
-  }, 'ui-responsive: sidebar long-press reorder')
+    return () => { reorder.detach(); zone.detach() }
+  }, 'ui-responsive: sidebar long-press reorder') })
 
   // FX1-C (2026-09-27, user): the sidebar 插件 row switches the centre column to
   // upstream plugin-manager main panel, which is neither a dialog nor a sidebar layer -
