@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { Context } from '@deepseek-ai/cordis'
-import { createLinuxPluginHost, registerLinuxEnvironmentRoutes, checkLinuxEnvironmentAfterMobileChange, normalizeLinuxStatus } from '../lib/linux-environment.js'
+import { createLinuxPluginHost, registerLinuxEnvironmentRoutes, checkLinuxEnvironmentAfterMobileChange, normalizeLinuxStatus, cordisScope } from '../lib/linux-environment.js'
 
 const TOKEN = 'a'.repeat(32)
 function makeBootstrap(overrides = {}) {
@@ -22,8 +22,14 @@ function makeBootstrap(overrides = {}) {
     setAutoUpdateEnabled: async enabled => { calls.push(['autoUpdate', enabled]); state.autoUpdateEnabled = enabled },
   }
 }
-function harness(bootstrap = makeBootstrap()) {
-  const routes = new Map()
+/**
+ * The bootstrap aborts an install with "The installed runtime plugin did not provide a runtime
+ * manager" unless `hostResult.manager` (or `.service`) satisfies its own `install`/`uninstall`
+ * check, so every activation in these tests has to hand one back.
+ */
+const makeManager = () => ({ install: async () => {}, uninstall: async () => {} })
+
+function harness(bootstrap = makeBootstrap()) {  const routes = new Map()
   const disposers = []
   registerLinuxEnvironmentRoutes({
     webServer: { register: route => { routes.set(route.path, route); return () => routes.delete(route.path) } },
@@ -127,8 +133,8 @@ test('pluginHost uses real Cordis activation, awaits initialization and disposes
     const directory = join(dir, 'plugins', 'runtime', '1.0.0')
     await mkdir(join(directory, 'lib'), { recursive: true })
     await writeFile(join(directory, 'package.json'), '{"type":"module"}')
-    await writeFile(join(directory, 'lib', 'index.js'), 'export async function apply(ctx) { await Promise.resolve(); ctx.provide("testLinuxRuntime", {active:true}) }')
-    const host = createLinuxPluginHost({ root: join(dir, 'plugins'), activate: (plugin, config) => ctx.plugin(plugin, config) })
+    await writeFile(join(directory, 'lib', 'index.js'), 'export async function apply(ctx) { await Promise.resolve(); ctx.provide("testLinuxRuntime", {active:true}); ctx.provide("linuxRuntimeManager", { install: async () => {}, uninstall: async () => {} }) }')
+    const host = createLinuxPluginHost({ root: join(dir, 'plugins'), activate: (plugin, config) => cordisScope(ctx.plugin(plugin, config)) })
     await host.install({ directory })
     assert.equal(ctx.get('testLinuxRuntime').active, true)
     await host.install({ directory })
@@ -149,7 +155,7 @@ test('pluginHost rejects pending or failed Cordis activation and cleans partial 
     await writeFile(join(directory, 'lib', 'index.js'), '')
     let fail = true
     const host = createLinuxPluginHost({
-      root: dir, activate: (plugin, config) => ctx.plugin(plugin, config),
+      root: dir, activate: (plugin, config) => cordisScope(ctx.plugin(plugin, config)),
       importModule: async () => fail ? {
         async apply(scope) { scope.provide('partialLinuxRuntime', true); throw new Error('startup failure') },
       } : { inject: ['absentLinuxDependency'], apply() { throw new Error('must not run') } },
@@ -193,9 +199,9 @@ test('manual removal is never resurrected: activation and reinstall both fail cl
   try {
     const directory = join(root, 'linux-runtime', '2.0.0')
     await mkdir(join(directory, 'lib'), { recursive: true })
-    await writeFile(join(directory, 'lib', 'index.js'), 'export function apply(ctx) { ctx.provide("runtimeInjectedMarker", true) }')
+    await writeFile(join(directory, 'lib', 'index.js'), 'export function apply(ctx) { ctx.provide("runtimeInjectedMarker", true); ctx.provide("linuxRuntimeManager", { install: async () => {}, uninstall: async () => {} }) }')
     const ctx = new Context()
-    const host = createLinuxPluginHost({ root, activate: (plugin, config) => ctx.plugin(plugin, config) })
+    const host = createLinuxPluginHost({ root, activate: (plugin, config) => cordisScope(ctx.plugin(plugin, config)) })
     await host.install({ directory })
     assert.deepEqual(await host.isInjected({ runtimeId: 'linux-runtime' }), { injected: true, active: true, directory })
     await rm(join(root, 'linux-runtime'), { recursive: true, force: true })
@@ -235,20 +241,68 @@ test('normalizer accepts the finalized Bionilux status shape and the earlier pro
   assert.deepEqual(normalizeLinuxStatus({}).mobileVersion, 'unknown', 'an absent version must not render blank')
 })
 
-test('install accepts the optional enable flag and reports what it activated', async () => {
+test('install returns the manager the bootstrap requires, and fails closed without one', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'linux-host-result-'))
   const root = join(dir, 'plugins')
   try {
     const directory = join(root, 'runtime')
     await mkdir(join(directory, 'lib'), { recursive: true })
     await writeFile(join(directory, 'lib', 'index.js'), 'export function apply() {}')
-    const host = createLinuxPluginHost({ root, activate: () => ({ state: 2, dispose() {} }) })
-    assert.deepEqual(await host.install({ directory, enable: true, config: {} }), { directory, active: true })
-    assert.deepEqual(await host.install({ directory }), { directory, active: true }, 'repeat activation is idempotent')
+    const manager = makeManager()
+    // The host may see the manager either as the scope's own value or through the service the
+    // runtime plugin publishes; `resolveManager` accepts hostResult.manager first.
+    const host = createLinuxPluginHost({ root, activate: () => ({ state: 2, dispose() {}, manager }) })
+    const first = await host.install({ directory, enable: true, config: {} })
+    assert.equal(first.directory, directory)
+    assert.equal(first.active, true)
+    assert.equal(first.manager, manager, 'hostResult.manager must carry the runtime manager')
+    assert.equal(typeof first.rollback, 'function', 'rollback is optional but we always offer it')
+    const again = await host.install({ directory })
+    assert.equal(again.manager, manager, 'repeat activation is idempotent')
     assert.deepEqual(await host.isInjected({ directory }), { injected: true, active: true, directory })
     const outside = join(dir, 'elsewhere')
     assert.deepEqual(await host.isInjected({ directory: outside }), { injected: false, active: false })
     await assert.rejects(host.install({ directory: outside, enable: true }), /not present in the injection directory/)
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+test('activation without a runtime manager is refused instead of reported as installed', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'linux-host-nomanager-'))
+  const root = join(dir, 'plugins')
+  try {
+    const directory = join(root, 'runtime')
+    await mkdir(join(directory, 'lib'), { recursive: true })
+    await writeFile(join(directory, 'lib', 'index.js'), 'export function apply() {}')
+    // A service that is not a manager (no install/uninstall) must not pass either.
+    const host = createLinuxPluginHost({ root, activate: () => ({ state: 2, dispose() {}, get: () => ({ install: async () => {} }) }) })
+    await assert.rejects(
+      host.install({ directory, enable: true }),
+      /The installed runtime plugin did not provide a runtime manager/,
+    )
+    assert.deepEqual(await host.isInjected({ directory }), { injected: true, active: false, directory })
+    // The published service shape wins when it carries the manager inside it.
+    const manager = makeManager()
+    const published = createLinuxPluginHost({ root, activate: () => ({ state: 2, dispose() {}, get: () => ({ service: { manager } }) }) })
+    assert.equal((await published.install({ directory, enable: true })).manager, manager)
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+test('rollback releases the scope so a failed install leaves nothing active', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'linux-host-rollback-'))
+  const root = join(dir, 'plugins')
+  try {
+    const directory = join(root, 'runtime')
+    await mkdir(join(directory, 'lib'), { recursive: true })
+    await writeFile(join(directory, 'lib', 'index.js'), 'export function apply() {}')
+    let disposed = 0
+    const host = createLinuxPluginHost({
+      root, activate: () => ({ state: 2, dispose: () => { disposed += 1 }, manager: makeManager() }),
+    })
+    const result = await host.install({ directory, enable: true })
+    assert.deepEqual(await host.isInjected({ directory }), { injected: true, active: true, directory })
+    await result.rollback()
+    assert.equal(disposed, 1)
+    assert.deepEqual(await host.isInjected({ directory }), { injected: true, active: false, directory })
   } finally { await rm(dir, { recursive: true, force: true }) }
 })
 
@@ -264,6 +318,24 @@ test('automatic checks stay off when the runtime injection was removed or the sy
   const allowed = makeBootstrap({ installed: true, autoUpdate: true, mobileVersion: '0.14.9', installedSystemMobileVersion: '0.14.8', injectionActivated: true })
   await checkLinuxEnvironmentAfterMobileChange(allowed)
   assert.deepEqual(allowed.calls, [['check', { source: 'mobile-version-change' }]])
+})
+
+test('uninstall accepts the documented argument object and still releases the scope', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'linux-host-uninstall-'))
+  const root = join(dir, 'plugins')
+  const ctx = new Context()
+  try {
+    const directory = join(root, 'runtime')
+    await mkdir(join(directory, 'lib'), { recursive: true })
+    await writeFile(join(directory, 'lib', 'index.js'), 'export function apply(ctx) { ctx.provide("uninstallProbe", true); ctx.provide("linuxRuntimeManager", { install: async () => {}, uninstall: async () => {} }) }')
+    const host = createLinuxPluginHost({ root, activate: (plugin, config) => cordisScope(ctx.plugin(plugin, config)) })
+    await host.install({ directory })
+    // The bootstrap calls uninstall({runtimeId, directory, rollback}); extra fields are not the host's to own.
+    await host.uninstall({ runtimeId: 'debian-minimal', directory, rollback: () => {} })
+    assert.equal(ctx.get('uninstallProbe'), undefined)
+    assert.deepEqual(await host.isInjected({ runtimeId: 'debian-minimal' }), { injected: false, active: false })
+    await host.uninstall()
+  } finally { await rm(dir, { recursive: true, force: true }) }
 })
 
 test('pluginHost rejects activation with no Android filesDir and a non-Cordis bundle', async () => {

@@ -189,7 +189,7 @@ JS interface count is checked from source by `scripts/check-bridge-symmetry.mjs`
 
 ## Linux 内部插件宿主（实验性 internal，默认不启用）
 
-`dsh-android-linux-env` 提供惰性 Cordis 服务 `linuxPluginHost` 和 `/api/android/linux-environment/*`，不新增 Kotlin 桥方法或默认 Linux 工具。bootstrap 与 runtime 都是**我们自己的实验性内部插件**：随应用放入**内置（hard）插件目录**，但**默认不启用——存在不等于启用**。应用更新或插件新版本发布都不会启用它们，也不会重新启用用户停用的插件。只有该内部插件真的被启用（服务在场）后，客户端一次本地状态探测才注册「Linux环境」；停用后入口消失。
+`dsh-android-linux-env` 提供惰性 Cordis 服务 `linuxPluginHost` 和 `/api/android/linux-environment/*`，不新增 Kotlin 桥方法或默认 Linux 工具。bootstrap 与 runtime 都是**我们自己的实验性内部插件**：随应用放入**内置（hard）插件目录**，但**默认不启用——存在不等于启用**。应用更新或插件新版本发布都不会启用它们，也不会重新启用用户停用的插件。「Linux环境」设置入口由 vendored bootstrap 的客户端条目注册（id `linux-environment`，见 `docs/AGENTS/modules.md`）——那是该分区的**唯一注册方**；壳侧 0.14.x 的同名分区已撤回（list 槽重复 id 会抛错），签名的 `/api/android/linux-environment/*` 路由与 `linuxPluginHost` 作为惰性宿主基础设施保留。只有 bootstrap 真的被启用（`linuxBootstrap` 服务在场）后入口才出现；停用后消失。
 
 | HTTP | 路径后缀 | 语义 |
 |---|---|---|
@@ -201,7 +201,7 @@ JS interface count is checked from source by `scripts/check-bridge-symmetry.mjs`
 
 上述每条路由在读取请求体、访问 bootstrap 前执行 `authorizeMobileRoute`（connection 的同源会话优先，回环 control token 兜底），响应 `no-store`，错误方法 405；确认请求体限 1024 字节，操作并发返回 409。版本变化自动检查仅在内部 bootstrap 服务就绪（已启用）、已有安装基线、自动更新开启且当前 `DSH_APP_VERSION` 与基线不同时发起；同一应用版本的持久化尝试记录由 bootstrap 去重。无网络恢复/启动定时轮询。自动更新必须保持用户已经选定的启用状态与 runtime，不因新 Release 或应用升级启用插件、也不重新启用用户停用的插件。
 
-bootstrap 调用 `linuxPluginHost.install({directory,entry='lib/index.js',config,enable})` 时，目录和入口 realpath 必须属于 `$DSH_FILES_DIR/linux-environment/plugins`（内部 bootstrap 现行布局为 `plugins/runtime/<sha256>`，宿主同时支持平铺与 `<name>/<version>` 两级）；宿主只动态导入 Cordis 插件并等待 fiber 激活，不复制下载/校验/解包实现，返回 `{directory, active}`（重复激活幂等）。`enable` 与事务回滚句柄由 bootstrap 拥有，宿主只接受并忽略，不做启用决策。失败、依赖未就绪或卸载时 dispose；版本替换先卸载旧 scope。`uninstall()` 仅释放 scope，资产清理由 bootstrap 的事务层拥有。`DSH_FILES_DIR` 已由 EngineManager 注入为 `context.filesDir`，缺失不使用 cwd 或外部共享存储回落。
+bootstrap 调用 `linuxPluginHost.install({directory,entry='lib/index.js',config,enable})` 时，目录和入口 realpath 必须属于 `$DSH_FILES_DIR/linux-environment/plugins`（内部 bootstrap 现行布局为 `plugins/runtime/<sha256>`，宿主同时支持平铺与 `<name>/<version>` 两级）；宿主只动态导入 Cordis 插件并等待 fiber 激活，不复制下载/校验/解包实现，返回 **`{manager, rollback?}`**。`manager` 是**必需**项：bootstrap 按 `hostResult.manager ?? hostResult.service.manager ?? hostResult.service` 解析并要求其具备 `install()`/`uninstall()`，取不到即以 `The installed runtime plugin did not provide a runtime manager` 中止整次安装；宿主从激活作用域读出运行时插件 `ctx.provide('linuxRuntimeManager', manager)` 发布的那一份（并兼容 `apply()` 返回值路径），同时把它转发给 bootstrap 用于真正的 runtime 安装。`rollback()` 可选、由宿主拥有，bootstrap 在安装失败后调用它释放作用域。`enable` 由 bootstrap 传入但并不改变宿主行为（宿主不做启用决策）。失败、依赖未就绪或卸载时 dispose；版本替换先卸载旧 scope。`uninstall({runtimeId,directory,rollback?})` 仅释放 scope，资产清理由 bootstrap 的事务层拥有。`DSH_FILES_DIR` 已由 EngineManager 注入为 `context.filesDir`，缺失不使用 cwd 或外部共享存储回落。
 
 `linuxPluginHost.isInjected({name?, runtimeId?, directory?})` 是**在场（presence）的只读权威**，返回 `{injected, active}`（含 `directory`）：接受显式 `directory`，或按单段目录名（拒绝分隔符与 `.`/`..`）查 `$DSH_FILES_DIR/linux-environment/plugins/<name>`，支持平铺与 `<name>/<version>` 两级并在多版本时优先取最新已验证目录；只读 stat/realpath，**不创建、不修复、不重新下载**，bootstrap 只能用它做只读判定。因此用户手工移除的 runtime 不会被新 Release 或新应用版本复活：显式查询未命中即返回在场 `false`（不回落到内存中已激活的目录），随后的 `install()` 以「not present in the injection directory」失败关闭；bootstrap 应随之持久化未启用并停止安装。跨出根目录的符号链接与越级目录名同样判为不在场。**在场不等于启用**：首次安装与自动更新都必须显式确认（`confirmed:true`，install/reinstall 还需 `activate:true`）后才调用宿主激活，宿主本身不发起任何启用。
 

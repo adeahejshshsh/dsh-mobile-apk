@@ -40,11 +40,13 @@
 
 本仓交付实验性、默认不启用的宿主服务/API 与条件设置入口。bootstrap 与 runtime 是**我们自己的实验性内部插件**：按用户口径应随应用放入**内置（hard）插件目录**，但**默认不启用（存在不等于启用）**；应用更新或插件新版本发布都不得启用插件，也不得重新启用用户停用的插件。
 
-现状与缺口（如实登记）：这两个包由 `kelai141/dsh-bionilux` 构建发布，本仓当前尚未把它们放进内置目录 —— 本仓的内置目录由注入集（`scripts/plugin-dirs.json` 的自包含目录、`vendor/` 固化包）与引擎 overlay 共同决定，而 `plugins/` 下没有这两个包的源码/产物。因此"放进内置目录"这一步需要它们的构建产物按本仓注入链登记后才能完成：加入注入集时必须同时在 `scripts/contract.json` 的 `inserted` 登记并挂载，否则 `check-patch-mounts.mjs`（双向）与 `check-contract.mjs`（幽灵登记）会判红；且**不能**用 `disabled:` 顶层行表达"在场不启用"——`check-contract.mjs` 要求禁用目标必须存在于上游，本仓自有插件用该形态会被判成空指向而失败。
+现状与缺口（如实登记）：**bootstrap 源码已 vendored 进本仓** `plugins/dsh-linux-bootstrap/`（`@dsh-android/linux-bootstrap` 0.5.0，源 `kelai141/dsh-bionilux@5b7323f` `packages/linux-bootstrap`；只源码，无二进制/构建产物/LFS）。它**刻意不在注入集**：`scripts/plugin-dirs.json`、`scripts/contract.json` 的 `inserted`、`scripts/profile-web.cordis.patch.yml` 都不登记它，因为 bootstrap 的 `apply()` 需要**函数型 config**（`linuxAssetIO.downloadAsset`/`extractArchive`、`appVersionProvider`），profile 的 YAML 装配表达不了——把它挂进 profile 只会在装配期抛 `TypeError`。不入注入集同时让 `check-patch-mounts.mjs`（双向）与 `check-contract.mjs`（幽灵登记）保持真绿：它们守的是注入集与挂载集的双向一致，而本包不在任一集合内。代价是「写进 hard 目录」在**装配面**没有登记位，这一层的如实形态是：包字节随本仓（因而随 APK 源码分发）在场，但启用只发生在用户显式动作时，由宿主动态加载，不由 profile 决定。
 
-`kelai141/dsh-bionilux` 的内部 bootstrap 需注入后提供 `linuxBootstrap` 服务、调用 `linuxPluginHost`（含 `isInjected` 在场查询）后再激活；构造/下载/解包/运行时 manager 装配由 bootstrap 拥有。本仓单测以真实 Cordis 激活/卸载、在场查询与受控 bootstrap 服务覆盖边界，不能代替成品的集成。
+漂移由 `scripts/check-vendored-linux-bootstrap.mjs` 守（`--self-test` 含 1 正控 + 3 负控）：断言 vendored 文件集 == 上游包去掉 `test/` 加本仓两个文件、9 个上游一致文件的 EOL 归一秒摘要、以及三条刻意偏差（`exports` 指 `./lib`、保留 `build` 脚本、去掉 `test` 脚本、`private:true`）。它**不进** `check-release-gates.mjs` 的 `GATES`（进册即要求本地链与云端链同时接线，而那是镜像面文件），故以文档化命令 + 自检形式提供。
 
-设备验收仅覆盖未注入状态：不显示 Linux 设置入口、API 503、无运行目录或 Linux 工具自动创建；没有执行真实 Linux 安装、更新、重装、卸载，也没有打包最终 APK 或完成真机验收。这些不登记为通过。用户当前要求两个插件均外部 opt-in，发布不得自动修改注入目录；实际启用与完整安装验收须基于用户显式注入的外部成品另行完成。
+`kelai141/dsh-bionilux` 的内部 bootstrap 需被启用后提供 `linuxBootstrap` 服务、调用 `linuxPluginHost`（含 `isInjected` 在场查询）后再激活；构造/下载/解包由 bootstrap 拥有，运行时 manager 装配由宿主从激活作用域读出并交回（`install` 返回 `{manager, rollback?}`）。**未覆盖**：runtime 插件本体仍未 vendored（按设计只来自 Release），因此 `linuxPluginHost.install` 与 manager 交接只由单测（真实 Cordis + 受控 manager）覆盖，**没有**跑过真实 Release 产物。
+
+设备验收仅覆盖未注入状态：不显示 Linux 设置入口、API 503、无运行目录或 Linux 工具自动创建；没有执行真实 Linux 安装、更新、重装、卸载，也没有打包最终 APK 或完成真机验收。这些不登记为通过。这两个插件是我们自己的实验性内部插件（默认不启用），发布不得自动修改注入目录或启用它们；实际启用与完整安装验收须基于用户显式启用后的成品另行完成。
 
 ## 历史事项不自动关闭
 

@@ -1935,4 +1935,6 @@ Stellar 在跑、兼容层正常，本应用却在设置页与工具面一律报
 
 修法：Linux pluginHost 等待真实 fiber 激活，拒绝非 ACTIVE；失败时 dispose 已创建的 fiber，显式卸载及宿主卸载同样等待 disposer。目录以 `DSH_FILES_DIR` 为根做 realpath 校验，不把外部发行资产或 `$HOME/.dsh` 当作在场事实。bootstrap/runtime 是我们自己的实验性内部插件，随应用放入内置（hard）插件目录但**默认不启用（存在 ≠ 启用）**；未启用（无 `linuxBootstrap` 服务）时 API 503 且设置入口不注册。
 
-复验证据：`plugins/dsh-android-linux-env/test/linux-environment.test.mjs` 用真实 Cordis 跑异步服务提供/卸载，另注入启动异常和缺依赖反证，断言失败不能留下部分服务；在场用例覆盖平铺/版本化布局、越级目录名、外逃符号链接，以及「先激活 → 手工移除 → 在场转 false 且 install 失败关闭、运行中 scope 不被写回」这条不复活链。`dsh-client-ui-responsive/tests/linux-environment.spec.tsx` 断言未启用不注册入口，页面发现仅一次本地读，不触发远端更新。
+**0.15.0 追加（同一个坑的第二形态：把 fiber 包成普通对象会丢可等待性）**：`install` 要交出 bootstrap 要求的 `{manager}`，就得读激活作用域里的 `linuxRuntimeManager`，于是宿主把 fiber 适配成 `{state, dispose, get}` 的普通对象——普通对象**不可 await**，`await activation` 立刻返回，`state` 还在 PENDING，健康的异步 `apply()` 被误判成「did not become active」。修法：适配器保留 `ready`（承载 fiber 自身的 thenable 结算）并在 ACTIVE 判定前 await；`state` 用 getter 保持实时。适配器 `cordisScope` 由模块导出，`src/index.ts` 与单测共用同一份，避免「宿主能读到服务、测试读不到」的两侧漂移。
+
+复验证据：`plugins/dsh-android-linux-env/test/linux-environment.test.mjs` 用真实 Cordis 跑异步服务提供/卸载，另注入启动异常和缺依赖反证，断言失败不能留下部分服务；在场用例覆盖平铺/版本化布局、越级目录名、外逃符号链接，以及「先激活 → 手工移除 → 在场转 false 且 install 失败关闭、运行中 scope 不被写回」这条不复活链。`install` 无 manager 时报 bootstrap 原文错误、`rollback` 释放作用域、以及「只有 install/uninstall 齐全才算 manager」各有用例。`settings.section` 的归属反证：`dsh-client-ui-slots` 对 list 槽重复 id 抛错，故壳侧同名分区已于 0.15.0 撤回（见 modules.md），未启用时无入口。

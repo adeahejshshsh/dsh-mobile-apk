@@ -61,7 +61,6 @@ const OWN_SECTION_DESCRIPTIONS: ReadonlyMap<string, string> = new Map([
   ['手机控制', '屏幕、虚拟屏与特权通道'],
   ['通知', '任务提醒与授权请求'],
   ['模型能力', '补齐第三方模型的思考档位'],
-  ['Linux环境', 'Debian 运行支持、安装与独立更新'],
 ])
 
 /**

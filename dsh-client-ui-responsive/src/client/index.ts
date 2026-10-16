@@ -49,7 +49,6 @@ import { DevSection } from './dev-section/DevSection.tsx'
 import { PhoneControlSection } from './dev-section/phone-control.tsx'
 import { NotifySettingsSection } from './dev-section/notify-settings.tsx'
 import { ModelCapabilitySection } from './dev-section/model-capability.tsx'
-import { LinuxEnvironmentSection, registerLinuxSettingsWhenEnabled } from './dev-section/linux-environment.tsx'
 import { DEV_SECTION_CSS } from './dev-section/dev-section.css.ts'
 import { GeneralSettings } from './general-settings/GeneralSettings.tsx'
 import { ThemeBridge } from './theme-bridge.ts'
@@ -318,14 +317,14 @@ export function apply(ctx: ClientContext): void {
     label: () => '模型能力',
   }, ModelCapabilitySection))
 
-  // Linux 环境（实验性内部插件）：插件随机内置在 hard 插件目录，但默认不启用——只有它真的被启用
-  // （服务应答）时才注册设置入口；503 = 在场未启用，不注册。单次本地探测，不轮询、不装更新。
-  ctx.effect(() => registerLinuxSettingsWhenEnabled(() => ctx.slots.inject('settings.section', () => ctx.slots.register({
-    name: 'settings.section',
-    id: 'linux-environment',
-    order: 95,
-    label: () => 'Linux环境',
-  }, LinuxEnvironmentSection))))
+  // Linux 环境（实验性内部插件）**不由本文件注册**：该分区的唯一注册方是 vendored 的
+  // dsh-linux-bootstrap 客户端插件（plugins/dsh-linux-bootstrap 的 client 条目，id 同为
+  // linux-environment、label 同为「Linux环境」）。dsh-client-ui-slots 对 list 槽的重复 id 是
+  // **抛错**而非叠加，所以这里必须留空——两处都注册会在插件被启用时当场抛错。0.15.0 撤回
+  // 0.14.x 的壳侧同名分区（存在 ≠ 启用，未启用时本就没有任何入口）。
+  //
+  // 插件在内置（hard）插件目录里但默认不启用：它的 Cordis 客户端条目只在被显式启用、拿到
+  // linuxBootstrap 服务后才注册本分区，因此未启用时设置页不出现 Linux 入口。
 
   // Android general-settings rows (issue #59): immersive status-bar toggle.
   // 0.13.3 (D6): the font-size slider retired — upstream ui-theme fontSize

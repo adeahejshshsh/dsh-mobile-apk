@@ -45,16 +45,68 @@ export interface LinuxBootstrap {
   setAutoUpdateEnabled(enabled: boolean): unknown | Promise<unknown>
 }
 
-interface PluginScope { dispose(): unknown | Promise<unknown>; state?: FiberState }
+export interface PluginScope {
+  dispose(): unknown | Promise<unknown>
+  state?: FiberState
+  /** Resolves once the activation is settled, mirroring what awaiting a Cordis fiber does. */
+  ready?: unknown
+  /** The value the plugin returned from `apply()`, when the host can surface it. */
+  manager?: unknown
+  /** Reads a service the activated plugin published through `ctx.provide(name, service)`. */
+  get?(name: string): unknown
+}
+/**
+ * Adapts a Cordis fiber into the activation scope this host hands back.
+ *
+ * Why it is exported: the host (`src/index.ts`) and its tests must adapt fibers identically, or the
+ * service the runtime plugin publishes (`linuxRuntimeManager`) is readable in one place and invisible
+ * in the other.
+ *
+ * Two details the plain wrapper must keep from the raw fiber: `state` is a live getter (fibers
+ * activate asynchronously, so capturing it at call time reads PENDING), and `ready` carries the
+ * fiber's own thenable settlement — a Cordis fiber is awaitable, and dropping that would make the
+ * ACTIVE check race an async `apply()`.
+ */
+export function cordisScope(fiber: { state?: FiberState; dispose(): unknown | Promise<unknown>; ctx: unknown }): PluginScope {
+  return {
+    get state() { return fiber.state },
+    ready: Promise.resolve(fiber as never),
+    dispose: () => fiber.dispose(),
+    get: name => (fiber.ctx as Record<string, unknown>)[name],
+  }
+}
+/** The runtime side's handle: exactly the shape the bootstrap's own `isManager` check accepts. */
+export interface RuntimeManager {
+  install(...args: unknown[]): unknown
+  uninstall(...args: unknown[]): unknown
+  reinstall?(...args: unknown[]): unknown
+}
 export interface PluginInstall { directory: string; entry?: string; config?: Record<string, unknown>; enable?: boolean }
+export interface PluginUninstall { runtimeId?: string; directory?: string; rollback?: unknown }
 /** Membership knowledge is limited to what is actually present under the built-in plugin root. */
 export interface PluginInjectionQuery { name?: string; runtimeId?: string; directory?: string }
 export interface PluginInjectionState { injected: boolean; active: boolean; directory?: string }
-export interface PluginInstallResult { directory: string; active: boolean }
+/**
+ * `manager` is mandatory: the bootstrap resolves it as
+ * `hostResult.manager ?? hostResult.service.manager ?? hostResult.service` and aborts the install
+ * with "The installed runtime plugin did not provide a runtime manager" when it finds none.
+ * `rollback` is optional and ours to own; the bootstrap calls it after a failed install.
+ */
+export interface PluginInstallResult {
+  directory: string
+  active: boolean
+  manager: RuntimeManager
+  rollback: () => Promise<void>
+}
 export interface LinuxPluginHost {
   install(options: PluginInstall): Promise<PluginInstallResult>
-  uninstall(): Promise<void>
+  uninstall(options?: PluginUninstall): Promise<void>
   isInjected(query: PluginInjectionQuery): Promise<PluginInjectionState>
+}
+const isManager = (value: unknown): value is RuntimeManager => {
+  const candidate = value as RuntimeManager | null | undefined
+  return candidate !== null && typeof candidate === 'object' &&
+    typeof candidate.install === 'function' && typeof candidate.uninstall === 'function'
 }
 
 /** The experimental internal bootstrap ships an integrity-verified, versioned directory; only Cordis activation lives here. */
@@ -65,6 +117,7 @@ export function createLinuxPluginHost(options: {
 }): LinuxPluginHost {
   let scope: PluginScope | undefined
   let activeDirectory: string | undefined
+  let manager: RuntimeManager | undefined
   let operation: Promise<unknown> = Promise.resolve()
   const serialize = <T>(fn: () => Promise<T>): Promise<T> => {
     const next = operation.then(fn)
@@ -110,6 +163,29 @@ export function createLinuxPluginHost(options: {
     }
     return undefined
   }
+  /** Releases the activated scope and forgets the manager it handed us. */
+  const release = async () => {
+    if (scope) await scope.dispose()
+    scope = undefined
+    manager = undefined
+    activeDirectory = undefined
+  }
+  /**
+   * The runtime plugin exposes its manager two equivalent ways: `apply()` returns it, and it
+   * publishes the same object through `ctx.provide('linuxRuntimeManager', manager)`. Take whichever
+   * the host can see, in the bootstrap's own precedence, so the returned `hostResult` always carries
+   * a manager that satisfies `isManager`.
+   */
+  const runtimeManager = (activated: PluginScope) => {
+    const source = activated.manager ?? activated.get?.('linuxRuntimeManager')
+    if (source === null || typeof source !== 'object') return undefined
+    const record = source as { manager?: unknown; service?: unknown }
+    const service = record.service as { manager?: unknown } | undefined
+    for (const candidate of [record.manager, service?.manager, record.service, source]) {
+      if (isManager(candidate)) return candidate as RuntimeManager
+    }
+    return undefined
+  }
   return {
     install: input => serialize(async () => {
       const root = await rootReal()
@@ -120,35 +196,36 @@ export function createLinuxPluginHost(options: {
       }
       const entry = await realpath(resolve(directory, defaultEntry(input.entry)))
       if (!inside(directory, entry)) throw new Error('Runtime plugin entry must be inside its verified directory')
-      if (scope && activeDirectory === directory) return { directory, active: true }
+      if (scope && activeDirectory === directory && manager !== undefined) {
+        return { directory, active: true, manager, rollback: release }
+      }
       const plugin = await (options.importModule ?? (url => import(url)))(pathToFileURL(entry).href)
       if (typeof plugin !== 'object' || plugin === null || typeof (plugin as { apply?: unknown }).apply !== 'function') {
         throw new Error('Runtime bundle must export a Cordis apply function')
       }
-      if (scope) await scope.dispose()
-      scope = undefined
-      activeDirectory = undefined
+      await release()
       const activation = options.activate(plugin, input.config ?? {})
       let activated: PluginScope | undefined
       try {
         activated = await activation
+        if (activated.ready !== undefined) await activated.ready
         if (activated.state !== undefined && activated.state !== FiberState.ACTIVE) {
           throw new Error('Runtime Cordis plugin did not become active')
         }
+        const resolved = runtimeManager(activated)
+        if (resolved === undefined) throw new Error('The installed runtime plugin did not provide a runtime manager')
         scope = activated
+        manager = resolved
         activeDirectory = directory
-        return { directory, active: true }
+        return { directory, active: true, manager: resolved, rollback: release }
       } catch (error) {
         const failed = activated ?? ('dispose' in activation ? activation : undefined)
         await failed?.dispose()
         throw error
       }
     }),
-    uninstall: () => serialize(async () => {
-      if (scope) await scope.dispose()
-      scope = undefined
-      activeDirectory = undefined
-    }),
+    // `rollback` belongs to the bootstrap's transaction; the host only releases the scope.
+    uninstall: (_options?: PluginUninstall) => serialize(release),
     isInjected: async query => {
       const root = await rootReal()
       if (root === undefined) return { injected: false, active: false }
@@ -157,8 +234,7 @@ export function createLinuxPluginHost(options: {
       const directory = await findInjected(root, query, defaultEntry())
       if (directory !== undefined) {
         return { injected: true, active: scope !== undefined && activeDirectory === directory, directory }
-      }
-      // A specific query that matched nothing is a real "not present" answer. Only an empty query
+      }      // A specific query that matched nothing is a real "not present" answer. Only an empty query
       // may fall back to the activated directory, and only while that directory still exists on disk,
       // so a manual deletion stays visible instead of being masked by stale in-memory state.
       if (asked) return { injected: false, active: false }

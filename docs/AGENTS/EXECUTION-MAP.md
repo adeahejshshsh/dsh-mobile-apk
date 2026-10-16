@@ -1444,7 +1444,9 @@ flowchart TD
 
 Linux 内部插件宿主适配（实验性 internal，默认不启用）：`plugins/dsh-android-linux-env/src/linux-environment.ts` 提供受鉴权的 Linux 生命周期 HTTP 路由和 `linuxPluginHost`。bootstrap 与 runtime 是我们自己的实验性内部插件，随应用放入内置（hard）插件目录，但**默认不启用——存在不等于启用**；应用更新或插件新版本发布都不会启用它们。宿主不下载、校验或解包资产，也不替用户启用；内部 bootstrap 被启用（服务在场）后设置页才注册「Linux环境」，未启用则 503 且无入口。runtime 目录由内部 bootstrap 完成事务后交给宿主，必须位于 `$DSH_FILES_DIR/linux-environment/plugins` 内；宿主核对 realpath 后动态 import，等待 Cordis fiber 激活，失败或卸载时 dispose。`linuxPluginHost.isInjected({name?,runtimeId?,directory?})` 只读上报**在场**（平铺或 `<name>/<version>` 布局，拒绝分隔符与外逃符号链接）并作为权威判定：显式查询未命中即不在场（不回落内存已激活目录），手工删除后 `install()` 以不在场失败关闭，新 Release 或新应用版本不会把插件重新写回。
 
-版本变化链为 `linuxBootstrap 服务就绪 → 读取持久化安装版本/应用基线/自动更新偏好/尝试记录 → 基线不同时 checkForUpdates({source:'mobile-version-change'})`；偏好开关和页面挂载都不发更新检查。手动检查只调用 `source:'manual'`，安装、重装、卸载与开关写入均需 `confirmed:true`。设置页不持久化第二份系统状态，读写都回到 bootstrap；无该服务时 HTTP 503 且不注册设置入口。外部插件的发布不修改注入目录或默认启用状态。完整协议见 `docs/AGENTS/BRIDGE-API.md` 的 Linux 外部插件宿主节；设备证据限未注入状态，不代表完成真实安装验收。
+版本变化链为 `linuxBootstrap 服务就绪 → 读取持久化安装版本/应用基线/自动更新偏好/尝试记录 → 基线不同时 checkForUpdates({source:'mobile-version-change'})`；偏好开关和页面挂载都不发更新检查。手动检查只调用 `source:'manual'`，安装、重装、卸载与开关写入均需 `confirmed:true`。设置页不持久化第二份系统状态，读写都回到 bootstrap；无该服务时 HTTP 503 且不注册设置入口。这两个实验性内部插件的发布不修改注入目录或默认启用状态。
+
+vendored bootstrap 与注入集的关系（0.15.0）：`plugins/dsh-linux-bootstrap/`（源 `kelai141/dsh-bionilux@5b7323f`，只源码；`lib/` 由 `build.mjs` 在链上重建）**刻意不登记**进 `scripts/plugin-dirs.json`、`scripts/contract.json` 的 `inserted`、`scripts/profile-web.cordis.patch.yml` —— 它的 `apply()` 需要函数型 config（`linuxAssetIO`），YAML 挂载表达不了，挂进 profile 只会抛 `TypeError`；不入注入集也让 `check-patch-mounts`/`check-contract` 的双向一致断言保持真绿（它们守注入集 ↔ 挂载集，本包两边都不在）。漂移由 `scripts/check-vendored-linux-bootstrap.mjs` 守（自带 `--self-test`：1 正控 + 3 负控），它**不进** `check-release-gates.mjs` 的 `GATES`（进册即要求本地链与云端链接线，而那两处是逐字节镜像面）。完整协议见 `docs/AGENTS/BRIDGE-API.md` 的 Linux 内部插件宿主节；设备证据限未启用状态，不代表完成真实安装验收。
 
 
 - **一句话**：三个引擎侧插件的合块——`dsh-android-file-open` 把壳侧拷好的外部文件变成一条「强制新会话、未发送的附件草稿」（配五条受鉴权的 exact 路由与自有临时项清单）、`dsh-android-linux-env` 提供工具链/环境配方视图与开发者选项的运行时缓存白名单清理、`dsh-model-capability` 为手填供应商路由探测能力并把缺失字段写回 settings.yaml。
@@ -2220,6 +2222,9 @@ plugins/dsh-android-file-open/src/route-auth.ts
 plugins/dsh-android-linux-env/src/index.ts
 plugins/dsh-android-linux-env/src/runtime-cache.ts
 plugins/dsh-android-linux-env/src/linux-environment.ts
+plugins/dsh-linux-bootstrap/build.mjs
+glob:plugins/dsh-linux-bootstrap/src/*.js
+glob:plugins/dsh-linux-bootstrap/client/*.js
 plugins/dsh-model-capability/src/index.ts
 plugins/dsh-model-capability/src/capability-probe.ts
 plugins/dsh-model-capability/src/settings-writer.ts

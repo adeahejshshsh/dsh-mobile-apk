@@ -31,7 +31,7 @@ import { PROBE_BINARIES, REQUIRED_TOOLCHAIN, TOOLCHAIN_REPRESENTATIVE } from '@d
 // 块 E：白名单扫描/执行/标签（设计与判据见 runtime-cache.ts 头注释）。
 import { displayLabel, executeCleanup, planCleanup, type CleanupPlan } from './runtime-cache.js'
 import {
-  createLinuxPluginHost, checkLinuxEnvironmentAfterMobileChange, registerLinuxEnvironmentRoutes,
+  createLinuxPluginHost, checkLinuxEnvironmentAfterMobileChange, registerLinuxEnvironmentRoutes, cordisScope,
   type LinuxBootstrap,
 } from './linux-environment.js'
 
@@ -349,7 +349,7 @@ export function apply(ctx: Context, _config: Record<string, unknown> = {}) {
   // 服务与用户显式确认决定，本插件不下载、不解包、不替用户启用。
   const pluginHost = createLinuxPluginHost({
     root: process.env.DSH_FILES_DIR ? join(process.env.DSH_FILES_DIR, 'linux-environment', 'plugins') : undefined,
-    activate: (plugin, config) => ctx.plugin(plugin as Parameters<Context['plugin']>[0], config),
+    activate: (plugin, config) => cordisScope(ctx.plugin(plugin as Parameters<Context['plugin']>[0], config)),
   })
   if (typeof ctx.provide === 'function') {
     ctx.provide('linuxPluginHost', pluginHost)
