@@ -1948,3 +1948,13 @@ Stellar 在跑、兼容层正常，本应用却在设置页与工具面一律报
 修法：只在源行祖先容器实际滚动时取消待激活长按；忽略源行及后代的标题滚动。侧开落点先捕获会话身份，再结算排序，避免排序收尾重建节点后丢失打开动作。退出及卸载清除蓝区和动效计时器。
 
 复验证据：`dsh-client-ui-responsive/tests/conversation-dock.spec.ts` 同时覆盖标题滚动不取消、祖先滚动取消、排序收尾移除源节点仍准确打开、提前删除源节点不打开。设备轨迹与热推结论见本轮 PR。
+
+318. **旧 WebView 将自定义协议 URL 当作无 host 路径，子代理原生侧开被拒**：
+
+现象：`new URL('dsh-resource://subagentchat/session/<child>?parent=<parent>&mode=continuable')` 在设备上给出空 hostname，pathname 带 `//subagentchat/`；原生 `subagentchat` 类型据此拒绝有效地址。模拟器上的普通侧开按钮也可复现。
+
+修法：新增对话拖动入口使用自身的 conversation 资源格式，以明确前缀、编码后的路径和 URLSearchParams 解析直接父子地址，不依赖自定义协议的 hostname。子代理身份来自运行时目录，完整核对弹窗行序、层级和标签；身份不一致则不打开。保留原生子代理提供方，避免修改全局 URL 或服务方法。
+
+触摸还须在长按前对会话与子代理行禁止原生文字选择及 HTML drag，否则 WebView 先发 touchcancel，JS 的 dragstart 拦截会来不及。只在 coarse pointer 下禁用这些原生行为，桌面鼠标原有排序不受影响。
+
+复验证据：`dsh-client-ui-responsive/tests/conversation-dock.spec.ts` 覆盖同名条目、目录漂移、父子路由与引用隔离；设备证据与运行树哈希见本轮 PR。
