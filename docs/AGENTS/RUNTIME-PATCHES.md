@@ -65,6 +65,7 @@
 <!-- generated:active-registry:start -->
 | 活动补丁 ID | scope | 目标 |
 |---|---|---|
+| `sidebar-bubble-reorder-B1` | engine | `usr/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js` |
 | `market-B` | undefined | `dshmarketplace-plugin/lib/index.js` |
 | `market-D-server` | undefined | `dshmarketplace-plugin/lib/index.js` |
 | `market-route-auth-U2` | undefined | `dshmarketplace-plugin/lib/index.js` |
