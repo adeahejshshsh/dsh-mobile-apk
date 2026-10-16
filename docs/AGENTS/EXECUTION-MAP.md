@@ -19,6 +19,14 @@
 3. **跑排查入口**：查点「症状 → 排查」里的命令 / grep 关键词 / logcat tag（都是本块独有的，别从别处抄）。
 4. **先看疑点**：§3 疑点清单里该查点是否已有登记（含证据、影响、状态），避免重复踩坑。
 
+## 右侧气泡导航实施补充（2026-10-17，不改版本）
+
+- P03：`sidebar-bubbles.ts` 从原生 strip 读取当前会话标签，窄于 768 CSS 像素时挂载导航；`sidebar-bubbles.css.ts` 提供可滚动胶囊与 180ms 退出/进入动画，`sidebar-bubbles.locales.ts` 管理文案。选择和关闭点击原控件，内容节点不迁移。原 strip 重建后按元素身份刷新代理，卸载时恢复 aria/样式并释放引用。
+- K08 / P03：`native-browser-presentation.ts` 观察气泡 open/closing 标记，隐藏原生显示层直到退出动画完成；同一浏览器页与 profile 保留。原生 IME 高度和 visualViewport 共同约束列表下沿。
+- P03：`back-stack.ts` 先收起气泡再走右栏原返回路径；取消长按后首次返回可用，并恢复三点按钮焦点。`sidebar-gestures.ts` 排除导航触点，普通滑动保持列表滚动。
+- 构建期 B1：`scripts/patches/data/sidebar-bubble-reorder.mjs` 通过原 `placeTab` 提交同分栏排序并保留活动页；发布包/Android 源码构建双形态夹具和拒绝写入反例由 `scripts/patches/tests/sidebar-bubble-reorder.test.mjs` 执行。
+- 验收入口：`scripts/verify-sidebar-bubbles.mjs` 在真实 WebView 上读取业务语义，ADB 执行点击、滑动、长按、取消与返回并保存截图。宽屏使用 `--wide`；`--owner` 可选择专用验收会话。详见 `docs/maintenance/sidebar-bubbles-2026-10-17.md`。
+
 ## 0.14.5-fx-1 实施补充（2026-10-09）
 
 - K08 / 前端呈现：`BrowserHost.setStageBounds` 与 `BrowserOverlayPolicy` 的 4000ms TTL 为租约；`dsh-client-ui-responsive/src/client/mobile/native-browser-presentation.ts` 可见挂载时每1000ms续租，普通几何去重不得饿死续租。隐藏/卸载停止，前台强制重放；原生 `onActivityResumed` 仅在租约新鲜时重算/请求绘制，不刷新租约。测试 `BrowserOverlayContractTest.kt` 和客户端 `native-browser-presentation.spec.ts`。
@@ -2065,6 +2073,14 @@ node scripts/verify-client-plugin-fail-recovery.mjs --self-test   # 客户端插
 覆盖全域（脚本里定义，构建产物与第三方目录除外）：`app/src/**/*.kt` 与 `AndroidManifest.xml`、`plugins/*/{src,test}/**`、三个子仓 src/lib、`scripts/{check-,verify-,build-,inject-}*` 与 `scripts/patches/**`、`scripts/snapshot-config/**`。
 
 <!-- COVERAGE
+dsh-client-ui-responsive/src/client/mobile/sidebar-bubbles.ts
+dsh-client-ui-responsive/src/client/mobile/sidebar-bubbles.css.ts
+dsh-client-ui-responsive/src/client/mobile/sidebar-bubbles.locales.ts
+scripts/verify-sidebar-bubbles.mjs
+scripts/patches/data/sidebar-bubble-reorder.mjs
+scripts/patches/tests/sidebar-bubble-reorder.test.mjs
+glob:scripts/patches/tests/fixtures/dsh-client-ui-sidebar-right-0.2.0-rc.2/**
+glob:scripts/patches/tests/fixtures/dsh-client-ui-sidebar-right-mobile-0.2.0-rc.2/**
 # 0.14.3 actual new source/fixture ledger (not execution evidence)
 app/src/main/java/com/dsharnessmobile/shell/RootMaintenanceLease.kt
 app/src/main/java/com/dsharnessmobile/shell/BrowserHostProfile.kt

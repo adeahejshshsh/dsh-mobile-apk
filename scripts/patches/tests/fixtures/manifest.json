@@ -1,6 +1,59 @@
 {
   "$comment": "Current fixtures are exact unmodified files from the build cache, including multi-file companions and package identity. Provenance/file hashes are computed at capture time, never guessed from source or old releases.",
   "fixtures": {
+    "dsh-client-ui-sidebar-right-mobile-0.2.0-rc.2": {
+      "source": "runtime-capture",
+      "engine": "0.2.0-rc.2",
+      "package": "@deepseek-ai/dsh-client-ui-sidebar-right@0.2.0-rc.2",
+      "provenance": {
+        "captureRecord": "capture.json",
+        "captureRecordSha256": "213fa6412134538a631ebca26c8192958324c96ad3ceefa109b130fdfbebb1dc",
+        "evidence": "evidence.txt",
+        "evidenceSha256": "c9fe059f0de2f08f4d83a72439f9384f4e902a0a6d2ee57bd337551639e2dd53"
+      },
+      "files": [
+        "lib/client.js",
+        "package.json",
+        "capture.json",
+        "evidence.txt"
+      ],
+      "fileSha256": {
+        "lib/client.js": "b5070e3eb1fe36424cc94610a7a3d3f037573cdc665781577d227fd12edc2b30",
+        "package.json": "0dce181eed173bbea0627d6db2af5730fe9a43cb3ce4dd3ddb2364103d094c2a",
+        "capture.json": "213fa6412134538a631ebca26c8192958324c96ad3ceefa109b130fdfbebb1dc",
+        "evidence.txt": "c9fe059f0de2f08f4d83a72439f9384f4e902a0a6d2ee57bd337551639e2dd53"
+      },
+      "targets": {},
+      "patchIds": [
+        "sidebar-bubble-reorder-B1"
+      ],
+      "reason": "同代 Android 源码构建的第二种真实产物；主目标归属保留在 npm 发布夹具，双形态均运行锚点与行为测试。"
+    },
+    "dsh-client-ui-sidebar-right-0.2.0-rc.2": {
+      "source": "engine-tgz",
+      "engine": "0.2.0-rc.2",
+      "package": "@deepseek-ai/dsh-client-ui-sidebar-right@0.2.0-rc.2",
+      "provenance": {
+        "inputKind": "published-tarball",
+        "tarballFile": "deepseek-ai-dsh-client-ui-sidebar-right-0.2.0-rc.2.tgz",
+        "tarballSha256": "2a9c11b83b892493ba48a8ebbe41c54e958cfe8a96dd6e3cfe3ee59d7be450fc"
+      },
+      "files": [
+        "lib/client.js",
+        "package.json"
+      ],
+      "fileSha256": {
+        "lib/client.js": "7e3c8ead7f24a5b711e6554c9b3f3c0274ee5f95a50f3adc8269028ee0d978a2",
+        "package.json": "0dce181eed173bbea0627d6db2af5730fe9a43cb3ce4dd3ddb2364103d094c2a"
+      },
+      "targets": {
+        "lib/client.js": "usr/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/lib/client.js",
+        "package.json": "usr/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right/package.json"
+      },
+      "patchIds": [
+        "sidebar-bubble-reorder-B1"
+      ]
+    },
     "dsh-app-boot-0.1.7-rc.2": {
       "source": "superseded",
       "engine": "0.1.7-rc.2",
@@ -680,6 +733,6 @@
       ]
     },
     "overlaySha256": "118ac224b49fcdef386b699acda44a08042033cc67bed8b1b4e4af88aef475c7",
-    "registrySha256": "97c8c0d0bf42d820c3440cf6af14a9763939580c6b82b2e6c7032e6aecb179b0"
+    "registrySha256": "17612572dea271ac856a3224024f2af136b972ce6bb443cc69856a2950cea6eb"
   }
 }

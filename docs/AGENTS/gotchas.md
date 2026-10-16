@@ -1,5 +1,7 @@
 # gotchas.md — 关键实现细节与坑（全量）
 
+324. **气泡导航代理必须跟随原生标签栏节点重建**：上游在活动 TabHost 下挂载 strip；同分栏切页会替换结构相同的原按钮。只比 outerHTML 会保留断连按钮闭包，导致全屏、收起和新标签无响应。代理缓存同时比较元素身份，并释放断连 strip 引用。长按后只抑制物理释放产生的标签点击，取消/失焦要清理；系统返回不能被吞，并须把焦点交还三点按钮。列表范围同时读取 visualViewport 与原生 IME inset；Android adjustNothing 下真实键盘出现时 visualViewport 仍可保持全高。真实设备复验入口：`scripts/verify-sidebar-bubbles.mjs`。
+
 > grep 用法：`grep -n "<坑号>\." docs/AGENTS/gotchas.md` 或按关键词（如 `borrowSession`、`MANAGE_EXTERNAL_STORAGE`、`store-rehome`）定位。
 > 维护约定：新坑追加到文末并递增编号；修复后保留条目（教训与历史归档）。
 
