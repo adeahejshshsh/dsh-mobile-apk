@@ -303,13 +303,28 @@ window.__ModuleLoader__.load({
 		 * reloads so the UI re-reads them (settings UI does not hot-follow files). */
 		function maybeReload(r, label) {
 			if (r && r.ok && !r.unchanged && (label === "undo" || label === "redo" || label === "restore")) {
+				// 部分恢复时不自动刷新：刷新会把「哪些文件没恢复」的提示一起刷掉，用户再也看不到。
+				if (Array.isArray(r.missing) && r.missing.length > 0) return;
 				setTimeout(() => { try { location.reload(); } catch (e) { /* noop */ } }, 350);
 			}
 		}
+		/** 把 missing 条目压成一行可读清单（字符串或 {path|name} 对象都兼容）。 */
+		function describeMissing(missing) {
+			const names = (missing || []).map((m) => typeof m === "string" ? m : (m && (m.path || m.name)) || "?");
+			const head = names.slice(0, 3).join("、");
+			return names.length > 3 ? head + " 等 " + names.length + " 项" : head;
+		}
 		function publishResult(r, label) {
 			let text = "";
+			let partial = false;
 			if (r && r.ok) {
-				if (r.message) {
+				const missing = Array.isArray(r.missing) ? r.missing : [];
+				if (missing.length > 0) {
+					partial = true;
+					const id = r.targetId || (r.snapshot && r.snapshot.id) || "";
+					const head = label === "undo" ? "已撤销（部分）" : label === "redo" ? "已重做（部分）" : label === "snapshot" ? "已存档（部分）" : "已部分恢复";
+					text = head + (id ? " → " + id : "") + "：" + describeMissing(missing) + " 未恢复";
+				} else if (r.message) {
 					text = r.message;
 				} else {
 					const id = r.targetId || (r.snapshot && r.snapshot.id) || "";
@@ -318,7 +333,7 @@ window.__ModuleLoader__.load({
 			} else {
 				text = "失败:" + ((r && (r.error && (r.error.message || r.error) || r)) || "unknown");
 			}
-			try { window.dispatchEvent(new CustomEvent(RESULT_EVENT, { detail: { ok: !!(r && r.ok), text } })); } catch (e) { /* noop */ }
+			try { window.dispatchEvent(new CustomEvent(RESULT_EVENT, { detail: { ok: !!(r && r.ok), partial, text } })); } catch (e) { /* noop */ }
 		}
 		const KIND_KEYS = { manual: "type.manual", auto: "type.auto", baseline: "type.baseline", "pre-restore": "type.pre-restore" };
 		const LOC_KEYS = { manual: "loc.manual", auto: "loc.auto", legacy: "loc.legacy" };
