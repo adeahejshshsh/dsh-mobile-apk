@@ -351,6 +351,29 @@ object FileIncoming {
   }
 
   /**
+   * 读待发清单，区分「不存在」与「存在但读不出来」。
+   *
+   * - 返回 `null` = 文件存在但读取失败：调用方必须保留清单继续重试（不能当成「已投完」）；
+   * - 返回空列表 = 文件不存在（清空路径本来就会 delete，这是成功态）或本来就是空清单；
+   * - 其余情况返回去掉空行后的待发行。
+   *
+   * **不能用异常类型来分**：JVM 上 `FileInputStream` 对 ENOENT / EACCES / EISDIR 一律抛
+   * `FileNotFoundException`，只按异常类型判会把「真读故障」也归成「不存在」。所以先判存在，
+   * 读失败后再复核一次存在性——只有「仍然存在」才算读失败。
+   *
+   * 纯 JVM 成员（只碰 java.io.File），便于单测覆盖这两个边界。
+   */
+  internal fun readPendingLines(f: File): List<String>? {
+    if (!f.exists()) return emptyList()
+    return try {
+      f.readLines().filter { it.isNotBlank() }
+    } catch (_: Exception) {
+      // exists() 之后被并发删除（清空路径会 delete）：按「不存在」处理，否则是真读故障。
+      if (f.exists()) null else emptyList()
+    }
+  }
+
+  /**
    * 清待发清单（0.13.8 #174）：逐条投递，未确认的写回。返回 true = 清单已空。
    * 调用点：来件后台流（短促重试）与引擎就绪钩子（EngineStartFlow boot 探活成功点，
    * 冷启动竞态的确定性补投路径）。
@@ -359,7 +382,8 @@ object FileIncoming {
     val f = pendingFile(context)
     // 读失败 ≠ 清单已空：返回 true 会让调用方当轮直接收手（来件静默不投），
     // 与上面「true = 清单已空」的契约相反；返回 false 让短促重试继续，下一轮再试。
-    val lines = try { f.readLines().filter { it.isNotBlank() } } catch (_: Exception) { return false }
+    // 清单不存在则是成功态（清空后本来就会 delete），由 readPendingLines 归一成空列表。
+    val lines = readPendingLines(f) ?: return false
     if (lines.isEmpty()) { try { f.delete() } catch (_: Exception) {} ; return true }
     val remaining = lines.filter { !deliverOnce(context, it) }
     if (remaining.isEmpty()) {
