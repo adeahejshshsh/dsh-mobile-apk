@@ -288,7 +288,16 @@ class OverlayService : Service() {
     haloParams = haloP
     try { wm.addView(halo, haloP) } catch (_: Exception) {}
 
-    wm.addView(root, params)
+    // 本文件里其余 addView 都包了 try/catch，只有主窗口这一处是裸调用：而它是在 onCreate()
+    // 里同步执行的，异常会从 onCreate 抛出去 ⇒ Service 启动失败、进程还会被一起收掉。
+    // 真实触发面：Android 12+ 的后台 overlay 限制（从通知栏/快捷设置拉起服务）、
+    // 运行中撤销悬浮窗权限、OEM 的窗口 token 失效。
+    try {
+      wm.addView(root, params)
+    } catch (e: Exception) {
+      LogCollector.log("dsh-overlay", "ball window addView failed: " + (e.message ?: e.javaClass.simpleName))
+      return
+    }
     rootView = root
     attachBallTouch(ball)
     // 键盘顶起面板：由独立面板窗口的系统 ADJUST_PAN 原生实现（showPanel 注释）。
