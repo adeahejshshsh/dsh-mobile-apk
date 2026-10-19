@@ -382,7 +382,8 @@ object UpdateChecker {
             }
           }
         }
-        if (dest.exists()) dest.delete()
+        // rename(2) 在 POSIX 上原子覆盖目标：先删目标只会在中间窗口里留下「目标不存在」的状态，
+        // 此时被杀就丢掉上一份已下好的包（要重下几百 MB）。跨设备时才需要 copyTo 兜底。
         if (!tmp.renameTo(dest)) { tmp.copyTo(dest, overwrite = true); tmp.delete() }
         conn.disconnect()
         return candidate

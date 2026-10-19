@@ -244,7 +244,7 @@ internal object LinuxAssetIO {
         val code = if (digest.bytes != spec.size) CODE_SIZE_MISMATCH else CODE_DIGEST_MISMATCH
         return Failure(code, detail)
       }
-      if (destination.exists()) destination.delete()
+      // rename(2) 原子覆盖：先删目标会与 finally 的 tmp.delete() 组合出「目标与临时都不存在」的窗口。
       if (!tmp.renameTo(destination)) {
         tmp.copyTo(destination, overwrite = true)
         tmp.delete()

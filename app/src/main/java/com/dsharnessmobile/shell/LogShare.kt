@@ -239,7 +239,7 @@ internal object LogShare {
         zip.write(manifest.toByteArray(Charsets.UTF_8))
         zip.closeEntry()
       }
-      if (zipFile.exists()) zipFile.delete()
+      // rename(2) / Files.move(REPLACE_EXISTING) 都能覆盖目标：先删只会制造「分享包不见了」的窗口。
       if (!tmp.renameTo(zipFile)) {
         java.nio.file.Files.move(tmp.toPath(), zipFile.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
       }
