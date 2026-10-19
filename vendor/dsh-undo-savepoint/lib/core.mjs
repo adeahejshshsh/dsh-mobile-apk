@@ -1994,9 +1994,12 @@ async function applySnapshot(cfg, snap) {
   const hashes = new Map();
   for (const file of (snap.files ?? [])) {
     const spec = findSpec(file.name);
-    if (!spec) continue;
+    // 主文件分支与插件/profile 分支同口径：恢复不了就要如实记账。
+    // 旧实现在这两处直接 continue，restored 与 missing 都不含该文件 ⇒ 调用方报「全部恢复」，
+    // 而那个文件仍停在新内容上（撤销一半且事后无迹可查）。
+    if (!spec) { missing.push(`${file.name}: no file spec in this version`); continue; }
     const src = join(snap._dir, file.name);
-    if (!(await pathExists(src))) continue;
+    if (!(await pathExists(src))) { missing.push(`${file.name}: snapshot file missing`); continue; }
     let buf = await fs.readFile(src);
     let sensitiveNote = null;
     if (SENSITIVE_DESTS.has(file.name)) {
