@@ -438,8 +438,10 @@ export class ReferenceMenuEnhancer {
     const row = this.findRow(key)
     if (row === null) return false
     row.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
-    await this.waitFor(() => document.querySelector(MENU_SELECTOR) === null || this.findRow(key) === null, 600)
-    return true
+    // 等上游把这一行吃掉（菜单关闭或该行消失）。超时说明这一下没被接住（行已失效、菜单被
+    // 别的逻辑接管、上游重渲染把行换掉）——不能当成功：否则 addSelected 会把它计进「已插入」，
+    // 而输入框里并没有这条引用，剩下的勾选项还会被当成已处理。
+    return await this.waitFor(() => document.querySelector(MENU_SELECTOR) === null || this.findRow(key) === null, 600)
   }
 
   /** The row whose stable key matches（#169-5：不再按显示文本取第一个同名行）。 */
