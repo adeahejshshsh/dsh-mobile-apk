@@ -357,7 +357,9 @@ object FileIncoming {
    */
   fun flushPending(context: Context): Boolean {
     val f = pendingFile(context)
-    val lines = try { f.readLines().filter { it.isNotBlank() } } catch (_: Exception) { return true }
+    // 读失败 ≠ 清单已空：返回 true 会让调用方当轮直接收手（来件静默不投），
+    // 与上面「true = 清单已空」的契约相反；返回 false 让短促重试继续，下一轮再试。
+    val lines = try { f.readLines().filter { it.isNotBlank() } } catch (_: Exception) { return false }
     if (lines.isEmpty()) { try { f.delete() } catch (_: Exception) {} ; return true }
     val remaining = lines.filter { !deliverOnce(context, it) }
     if (remaining.isEmpty()) {
