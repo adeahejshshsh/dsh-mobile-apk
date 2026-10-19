@@ -18,7 +18,9 @@ const mod = await import(pathToFileURL(join(HERE, '..', 'lib', 'ime-broadcast.js
 
 test('广播点名接收器组件，并带上动作/nonce/文本', () => {
   const line = mod.adbKeyboardBroadcast(mod.KB_ACTION_INPUT, '鲸歌Abc123', 'nonce-abc')
-  assert.match(line, /^am broadcast -n com\.dsharnessmobile\.shell\/\.AdbKeyboardReceiver -a ADB_INPUT_TEXT /)
+  assert.match(line, /^am broadcast --ordered -n com\.dsharnessmobile\.shell\/\.AdbKeyboardReceiver -a ADB_INPUT_TEXT /)
+  // --ordered 是结果码通道的前提：壳侧只在 isOrderedBroadcast() 为真时 setResultCode。
+  assert.ok(line.includes('--ordered'), '必须走有序广播，否则结果码恒为 0')
   assert.match(line, /--es auth 'nonce-abc'/)
   assert.match(line, /--es msg '鲸歌Abc123'$/)
 })

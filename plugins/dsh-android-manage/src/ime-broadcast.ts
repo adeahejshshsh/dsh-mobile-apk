@@ -57,9 +57,14 @@ export function adbKeyboardAuth(filesDir: string | undefined): string {
  *
  * `-n` 是 #413 的关键：不点名组件时，targetSdk 34 应用的 manifest 接收器**收不到**
  * 隐式广播，命令照样返回 result=0，现场表现就是「链路全绿、文本不动」。
+ *
+ * `--ordered` 是结果码通道的前提：接收器只在 `isOrderedBroadcast()` 为真时才
+ * `setResultCode`（见 AdbKeyboardReceiver.setOrderedResult），而无序广播里结果码不生效，
+ * `am` 照样打印 `Broadcast completed: result=0` —— 于是「输入法未就绪」会被当成「已提交」，
+ * 上层的 220ms 重试与 2/3/4/5 四个失败分支全部变成死代码。有序广播单接收器无副作用。
  */
 export function adbKeyboardBroadcast(action: string, msg: string | null | undefined, auth: string): string {
-  const parts = [`am broadcast -n ${KB_RECEIVER} -a ${action}`]
+  const parts = [`am broadcast --ordered -n ${KB_RECEIVER} -a ${action}`]
   if (auth) parts.push(`--es auth ${shellQuote(auth)}`)
   if (typeof msg === 'string' && msg.length > 0) parts.push(`--es msg ${shellQuote(msg)}`)
   return parts.join(' ')
