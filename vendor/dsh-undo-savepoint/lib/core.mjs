@@ -172,6 +172,30 @@ function blobDir(cfg) {
  * 避免把生产中的数据当垃圾删掉（同一个窗也保护写-改名之间被杀留下的 .tmp）。
  */
 const COMPACT_GRACE_MS = 10 * 60_000;
+/**
+ * 正在创建、尚未提交 manifest 的快照所引用的 blob（hash → 引用计数）。
+ *
+ * 只靠 mtime 宽限不够：新快照可以**复用**一个一小时前就存在、且当前无人引用的 blob，
+ * 这个复用不会刷新 mtime，GC 在「引用已读取、manifest 未提交」之间把它删掉，随后提交的
+ * manifest 就留下悬空引用。这里把「本次快照将引用哪些 hash」在创建期整体登记，
+ * 两条回收路径（undoCompact / pruneOrphanBlobs）都据此跳过。
+ */
+const inFlightBlobs = new Map();
+function markBlobInFlight(hash, sink) {
+  if (!hash) return;
+  inFlightBlobs.set(hash, (inFlightBlobs.get(hash) ?? 0) + 1);
+  sink.push(hash);
+}
+function releaseBlobInFlight(hashes) {
+  for (const hash of hashes) {
+    const left = (inFlightBlobs.get(hash) ?? 0) - 1;
+    if (left > 0) inFlightBlobs.set(hash, left);
+    else inFlightBlobs.delete(hash);
+  }
+}
+function isBlobInFlight(name) {
+  return inFlightBlobs.has(name);
+}
 
 async function readBlob(cfg, hash) {
   try { return await fs.readFile(join(blobDir(cfg), hash)); } catch { return null; }
@@ -1488,6 +1512,17 @@ function canResolveAny(cfg, name) {
 
 // ── 快照创建 / 列表 / 状态 ────────────────────────────────────────────────
 async function createSnapshot(cfg, kind, reason, opts = {}) {
+  // 整个创建期（含 manifest 提交）都把本次引用的 hash 登记为 in-flight，
+  // 让并发的 GC 看到「这是生产中的数据」而不是「无人引用」。
+  const inFlight = [];
+  try {
+    return await createSnapshotInner(cfg, kind, reason, opts, inFlight);
+  } finally {
+    releaseBlobInFlight(inFlight);
+  }
+}
+
+async function createSnapshotInner(cfg, kind, reason, opts, inFlight) {
   const base = kind === 'manual' ? cfg.manualDir : cfg.autoDir;
   await fs.mkdir(base, { recursive: true });
   let id;
@@ -1524,6 +1559,7 @@ async function createSnapshot(cfg, kind, reason, opts = {}) {
     const tree = await collectPluginTree(cfg, p.dir);
     const refs = [];
     for (const f of tree.files) {
+      markBlobInFlight(f.hash, inFlight);
       await writeBlob(cfg, f.hash, await fs.readFile(f.abs));
       refs.push({ path: f.rel, hash: f.hash, size: f.size });
     }
@@ -1531,6 +1567,7 @@ async function createSnapshot(cfg, kind, reason, opts = {}) {
   }
   const profileFiles = [];
   for (const f of await collectProfileCodeRefs(cfg)) {
+    markBlobInFlight(f.hash, inFlight);
     await writeBlob(cfg, f.hash, await fs.readFile(join(rootDir(cfg, 'profile'), f.path)));
     profileFiles.push({ path: f.path, hash: f.hash, size: f.size });
   }
@@ -2292,6 +2329,8 @@ async function pruneOrphanBlobs(cfg, list) {
   let removed = 0;
   for (const entry of await fs.readdir(blob, { withFileTypes: true })) {
     if (!entry.isFile()) continue;
+    // 与 undoCompact 同口径：正在创建的快照还没写 manifest，此刻它在 refs 里也是「无人引用」。
+    if (isBlobInFlight(entry.name)) continue;
     if (!refs.has(entry.name)) {
       await fs.rm(join(blob, entry.name), { force: true });
       removed++;
@@ -2664,6 +2703,7 @@ async function undoCompact(cfg) {
     let st;
     try { st = await fs.stat(p); } catch { continue; } // 已消失
     // 宽限窗内的一律保留：正在创建的快照还没写 manifest，此刻它在 refs 里是「无人引用」。
+    if (isBlobInFlight(e.name)) { kept++; continue; } // 本次快照即将引用：绝不回收
     if (now - st.mtimeMs < COMPACT_GRACE_MS) { kept++; continue; }
     const isTmp = e.name.endsWith('.tmp');
     if (!isTmp && refs.has(e.name)) continue; // 被引用：保留
