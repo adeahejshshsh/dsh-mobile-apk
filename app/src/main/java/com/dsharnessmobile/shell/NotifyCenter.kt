@@ -867,7 +867,20 @@ object NotifyCenter {
     }) return Result.DUPLICATE_SUPPRESSED
     val notification = build(app, face, entry, fallback, form.degradeToSilent, degradedNotice)
     if (reportIdentity != null) notification.extras.putString("dsh.deferred.identity", reportIdentity)
-    manager.notify(id, notification)
+    // 投递异常必须就地收敛：典型是 POST_NOTIFICATIONS 在 hasPermission() 之后、这里之前被撤销
+    // （SecurityException），或渠道被系统删除（IllegalArgumentException）。异常若冒泡到
+    // NotifyStore.drain，偏移就不会推进，那一行会被每次 drain 反复重试、每次都抛同一个异常
+    // ⇒ 整条通知流永久停摆，连进程重启都救不回来（偏移仍停在那一行）。
+    try {
+      manager.notify(id, notification)
+    } catch (t: Throwable) {
+      NotifyProbe.log(
+        app, "dsh-notify",
+        "notify threw: " + (t.message ?: t.javaClass.simpleName) + " kind=" + kind + " cat=" + face.category,
+      )
+      listener?.onPermissionDenied()
+      return Result.PERMISSION_DENIED
+    }
     lastPostId = id
     lastPostSig = sig
     lastPostAt = now
