@@ -324,7 +324,7 @@ class OverlayService : Service() {
     expanded = true
     // 块H-A1「首次打开」：消费完成位——本次展开期常驻显示 A1 文案，下次收起再打开即回常态
     // （详档 §3.2 判定 1：用户口径是「首次打开」，永久常驻会让「首次」二字失去意义）。
-    completion.consume()
+    // 消费点下沉到窗口真正挂上之后（见下方 try/catch）：挂不上就回滚，别让一次失败的展开把「首次」吃掉。
     // 面板独立窗口（2026-09-03 键盘顶起重构）：IME insets 只随「与键盘相交的窗口」派发——
     // 球窗口贴顶时与键盘零相交（实测 ime bottom=0 visible=false），自监听原理性收不到。
     // 改面板独立窗口：focusable + ADJUST_PAN（默认），系统原生把面板整体顶到键盘上方、
@@ -346,7 +346,19 @@ class OverlayService : Service() {
     positionPanel()
     panel.refreshSessionPicker()
     unit.visibility = View.VISIBLE
-    try { wm.addView(unit, pp) } catch (_: Exception) {}
+    // 挂不上窗口时必须回滚：否则 expanded 停在 true、下面的 emitFrame() 还会把避让 padding
+    // 推给页面——用户看到「页面缩了一块、面板不在」，再点球想关也关不掉（状态机认为已展开）。
+    // 触发面同 buildRoot：Android 12+ 后台 overlay 限制 / 运行中撤销悬浮窗权限 / OEM token 失效。
+    try {
+      wm.addView(unit, pp)
+    } catch (e: Exception) {
+      LogCollector.log("dsh-overlay", "panel window addView failed: " + (e.message ?: e.javaClass.simpleName))
+      expanded = false
+      panelParams = null
+      unit.visibility = View.GONE
+      return
+    }
+    completion.consume()
     unit.post { positionPanel() }   // 首帧拿到真实宽高后再精确对位一次
     unit.alpha = 0f
     unit.animate().alpha(1f).setDuration(200).start()
