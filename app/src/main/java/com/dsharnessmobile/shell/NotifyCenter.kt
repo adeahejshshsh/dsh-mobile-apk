@@ -634,6 +634,12 @@ object NotifyCenter {
     ERROR,
 
     /**
+     * 暂时性投递失败：事件已落进延后队列（身份去重 + TTL + 重启不丢），消费侧应当**推进偏移**，
+     * 由队列的自续 tick 补投。与 [ERROR]（连落盘都失败，必须保留偏移）区分开。
+     */
+    DEFERRED_RETRY,
+
+    /**
      * P3 去重：同一通知身份 + 同一内容在 [DEDUP_WINDOW_MS] 内被重复投递，后到的那次丢弃。
      *
      * 真机实测：同一 `id=1949540996` 在约 80 ms 内被投 5 次（积压被一次性放出来）。同一 id 覆盖式
@@ -867,10 +873,10 @@ object NotifyCenter {
     }) return Result.DUPLICATE_SUPPRESSED
     val notification = build(app, face, entry, fallback, form.degradeToSilent, degradedNotice)
     if (reportIdentity != null) notification.extras.putString("dsh.deferred.identity", reportIdentity)
-    // 投递异常必须就地收敛：典型是 POST_NOTIFICATIONS 在 hasPermission() 之后、这里之前被撤销
-    // （SecurityException），或渠道被系统删除（IllegalArgumentException）。异常若冒泡到
-    // NotifyStore.drain，偏移就不会推进，那一行会被每次 drain 反复重试、每次都抛同一个异常
-    // ⇒ 整条通知流永久停摆，连进程重启都救不回来（偏移仍停在那一行）。
+    // 投递异常必须就地收敛：异常若冒泡到 NotifyStore.drain，偏移就不会推进，那一行会被每次
+    // drain 反复重试、每次都抛同一个异常 ⇒ 整条通知流永久停摆，连进程重启都救不回来。
+    // 但「收敛」不等于「一律当权限问题吞掉」——那样一次暂时故障也会推进偏移、丢掉未投递的
+    // 提问或审批。按可恢复性分流：
     try {
       manager.notify(id, notification)
     } catch (t: Throwable) {
@@ -878,8 +884,18 @@ object NotifyCenter {
         app, "dsh-notify",
         "notify threw: " + (t.message ?: t.javaClass.simpleName) + " kind=" + kind + " cat=" + face.category,
       )
-      listener?.onPermissionDenied()
-      return Result.PERMISSION_DENIED
+      // ① 权限被撤是**确定性**失败：重投不会成功，如实回报，不占用延后队列。
+      if (t is SecurityException) {
+        listener?.onPermissionDenied()
+        return Result.PERMISSION_DENIED
+      }
+      // ② 其余按**暂时性**处理：先把事件本身落进延后队列（身份去重 + TTL + 重启不丢），
+      //    再让消费侧推进偏移。键必须用事件身份而不是 deferredKey——后者是为汇报设计的
+      //    （同一会话的汇报互相覆盖），拿它给提问/审批会让同会话的汇报把提问挤掉。
+      val retryKey = "retry:" + NotifySuppressQueue.identity(entry)
+      if (NotifySuppressQueue.enqueue(app, entry, retryKey)) return Result.DEFERRED_RETRY
+      // ③ 连落盘都失败：保留偏移，宁可这一轮卡住也不丢事件。
+      return Result.ERROR
     }
     lastPostId = id
     lastPostSig = sig
