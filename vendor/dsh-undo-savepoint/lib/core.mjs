@@ -166,6 +166,13 @@ function sha1Hex(buf) {
 function blobDir(cfg) {
   return join(dirname(cfg.autoDir), 'blobs');
 }
+/**
+ * blob GC 的宽限窗：blob 的生命周期是「先写 blob → 最后写 manifest」，
+ * 正在创建中的快照写下的 blob 在引用清单里还看不到。按 mtime 豁免最近这段时间内的文件，
+ * 避免把生产中的数据当垃圾删掉（同一个窗也保护写-改名之间被杀留下的 .tmp）。
+ */
+const COMPACT_GRACE_MS = 10 * 60_000;
+
 async function readBlob(cfg, hash) {
   try { return await fs.readFile(join(blobDir(cfg), hash)); } catch { return null; }
 }
@@ -176,7 +183,20 @@ async function writeBlob(cfg, hash, buf) {
   await fs.mkdir(dir, { recursive: true });
   const tmp = `${target}.tmp`;
   await fs.writeFile(tmp, buf);
-  await fs.rename(tmp, target).catch(() => { /* 并发下另一个快照已写入，忽略 */ });
+  try {
+    await fs.rename(tmp, target);
+  } catch {
+    // 目标已存在 = 并发下另一个快照先写完了，忽略。
+    if (await pathExists(target)) return;
+    // 否则是临时文件被并发 GC 清掉（undoCompact 会清 .tmp）：重写一次再改名。
+    await fs.writeFile(tmp, buf);
+    try {
+      await fs.rename(tmp, target);
+    } catch (err) {
+      // 仍失败：宁可让本次快照失败，也不能留下「manifest 引用了不存在的 blob」。
+      if (!(await pathExists(target))) throw new Error(`blob write failed (${hash}): ${err?.code ?? err?.message ?? err}`);
+    }
+  }
 }
 
 /** 相对路径安全校验：恢复时防 manifest 被篡改后向任意路径写文件。 */
@@ -2635,17 +2655,22 @@ async function collectReferencedBlobs(cfg) {
 async function undoCompact(cfg) {
   const refs = await collectReferencedBlobs(cfg);
   const dir = blobDir(cfg);
-  if (!(await pathExists(dir))) return { ok: true, removed: 0, freed: 0 };
-  let removed = 0, freed = 0;
+  if (!(await pathExists(dir))) return { ok: true, removed: 0, freed: 0, kept: 0 };
+  let removed = 0, freed = 0, kept = 0;
+  const now = Date.now();
   for (const e of await fs.readdir(dir, { withFileTypes: true })) {
     if (!e.isFile()) continue;
+    const p = join(dir, e.name);
+    let st;
+    try { st = await fs.stat(p); } catch { continue; } // 已消失
+    // 宽限窗内的一律保留：正在创建的快照还没写 manifest，此刻它在 refs 里是「无人引用」。
+    if (now - st.mtimeMs < COMPACT_GRACE_MS) { kept++; continue; }
     const isTmp = e.name.endsWith('.tmp');
     if (!isTmp && refs.has(e.name)) continue; // 被引用：保留
-    const p = join(dir, e.name);
-    try { freed += (await fs.stat(p)).size; } catch { /* gone */ }
+    freed += st.size;
     await fs.rm(p, { force: true }); removed++;
   }
-  return { ok: true, removed, freed };
+  return { ok: true, removed, freed, kept };
 }
 async function restore(cfg, mode, id, options = {}) {
   if (hasOpenTurn()) return busyError();
