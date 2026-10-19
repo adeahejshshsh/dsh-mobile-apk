@@ -174,7 +174,7 @@ async function writeBlob(cfg, hash, buf) {
   const target = join(dir, hash);
   if (await pathExists(target)) return;
   await fs.mkdir(dir, { recursive: true });
-  const tmp = `${target}.tmp`;
+  const tmp = `${target}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
   await fs.writeFile(tmp, buf);
   await fs.rename(tmp, target).catch(() => { /* 并发下另一个快照已写入，忽略 */ });
 }
@@ -369,13 +369,43 @@ async function readManifest(dir) {
   return JSON.parse(text.replace(/^\uFEFF/, '')); // tolerate a BOM (PS5.1 wrote it)
 }
 
+/**
+ * 同一路径的写操作串行化（进程内）。
+ *
+ * 唯一临时名只防「写坏」，防不了「丢更新」：两个写者各自读到同一份旧内容、各自整份替换，
+ * 后落地的那份会覆盖先落地的结果。manifest 与回滚日志都是 read-modify-replace，必须整体串行。
+ */
+const fileWriteChains = new Map();
+function withFileLock(key, fn) {
+  const prev = fileWriteChains.get(key) ?? Promise.resolve();
+  const run = prev.then(fn, fn);
+  fileWriteChains.set(key, run.then(() => {}, () => {}));
+  return run;
+}
+
+/**
+ * 原子替换：同目录唯一临时名 → rename。
+ *
+ * 临时文件与目标同目录（同文件系统），rename 才是原子的；唯一名让并发写者互不踩对方的临时文件
+ * （共用 `<target>.tmp` 时，后写者会搬走前者的内容，或 rename 时临时文件已被对方删掉 ⇒ ENOENT）。
+ */
+async function replaceFileAtomic(target, data) {
+  const tmp = `${target}.tmp`;
+  await fs.writeFile(tmp, data, 'utf8');
+  try {
+    await fs.rename(tmp, target);
+  } catch (err) {
+    await fs.rm(tmp, { force: true }).catch(() => {});
+    throw err;
+  }
+}
+
 async function writeManifest(dir, snap) {
   // manifest 是整份快照的唯一索引：直接覆盖写一旦被打断，readManifest 解析失败，
   // listSnapshots 会把整份快照当「坏目录」静默忽略（而快照目录里的文件其实都还在）。
   const target = join(dir, 'manifest.json');
-  const tmp = `${target}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(snap, null, 2), 'utf8');
-  await fs.rename(tmp, target);
+  const data = JSON.stringify(snap, null, 2);
+  await withFileLock(target, () => replaceFileAtomic(target, data));
 }
 
 /** All directories that may hold snapshots (manual, auto, legacy root). */
@@ -2488,15 +2518,15 @@ async function appendRollbackLog(cfg, entry) {
     await fs.mkdir(dir, { recursive: true });
     const file = join(dir, 'rollback-log.jsonl');
     const line = JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n';
-    let text = '';
-    try { text = await fs.readFile(file, 'utf8'); } catch { /* new file */ }
-    text += line;
-    const lines = text.split(/\r?\n/).filter(Boolean);
-    if (lines.length > 100) text = lines.slice(lines.length - 100).join('\n') + '\n';
-    // 整份重写非原子：回滚过程中被杀会留下半截 JSON 行，读它的人拿到残缺历史。
-    const tmp = `${file}.tmp`;
-    await fs.writeFile(tmp, text, 'utf8');
-    await fs.rename(tmp, file);
+    // 读-改-写整体串行 + 唯一临时名：唯一名只防写坏，防不了两个写者各自读到旧内容后互相覆盖。
+    await withFileLock(file, async () => {
+      let text = '';
+      try { text = await fs.readFile(file, 'utf8'); } catch { /* new file */ }
+      text += line;
+      const lines = text.split(/\r?\n/).filter(Boolean);
+      if (lines.length > 100) text = lines.slice(lines.length - 100).join('\n') + '\n';
+      await replaceFileAtomic(file, text);
+    });
   } catch { /* logging must never break rollback */ }
 }
 
