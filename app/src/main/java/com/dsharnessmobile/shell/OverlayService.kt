@@ -188,7 +188,14 @@ class OverlayService : Service() {
     super.onCreate()
     instance = this
     wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-    buildRoot()
+    // 建窗失败必须收敛启动状态：OverlayController.isEnabled 以 instance != null 为判据之一，
+    // 留着实例就是「假开启」（设置页显示已开、屏幕上没有球）；再 startService 也不会重跑
+    // onCreate 来补建球。所以这里直接置空实例并 stopSelf()——用户重新打开开关即是一次可靠重试。
+    if (!buildRoot()) {
+      instance = null
+      stopSelf()
+      return
+    }
     live.startWatcher()
     probeEngine()
     scheduleProbe()
@@ -215,7 +222,13 @@ class OverlayService : Service() {
 
   // ── 窗口构建 ──────────────────────────────────────────────────────
 
-  private fun buildRoot() {
+  /**
+   * 建悬浮球主窗口。返回 false = 球窗口没挂上（光环窗口会一并收回）。
+   *
+   * 调用方（onCreate）据此收敛启动状态：不留「已开启但没有球」的实例，也不启动
+   * watcher / 探活 / mux——那些后台任务在没有球时只会空转。
+   */
+  private fun buildRoot(): Boolean {
     val dp = resources.displayMetrics.density
     val ballSize = ballSizeDp
     val haloSize = haloSizeDp
@@ -296,7 +309,10 @@ class OverlayService : Service() {
       wm.addView(root, params)
     } catch (e: Exception) {
       LogCollector.log("dsh-overlay", "ball window addView failed: " + (e.message ?: e.javaClass.simpleName))
-      return
+      // 光环窗口可能已经挂上（它在球之前 addView）：一并收回，避免留下「只有光圈没有球」的残窗。
+      removeWindow(haloView)
+      haloView = null
+      return false
     }
     rootView = root
     attachBallTouch(ball)
@@ -304,6 +320,7 @@ class OverlayService : Service() {
     // 球窗口收不到 IME insets（与键盘零相交的窗口系统不派发，实测 bottom=0 visible=false），
     // 旧自监听方案已废。
     emitFrame()
+    return true
   }
 
   // ── 展开/收起（200ms 渐显；无 spring 动画——0.14.1 块I 起贴边 spring 亦已删除） ──
