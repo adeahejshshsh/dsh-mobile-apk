@@ -275,7 +275,9 @@ function VdPanel(props: { sessionId?: unknown }): ReactElement {
     // 收起/展开只改可见性、不改舞台尺寸，ResizeObserver 不触发，所以必须由轮询兜底同批下发。
     // 与浏览器侧同口径（那里也是 refresh + publishBounds 同批，并同样有事件通道）。
     const pull = () => {
-      void pullPanelState().then((s) => { if (alive) setSnap(s) })
+      // 拉取失败（引擎重启瞬间的同源 fetch reject）不能变成每秒一次的 unhandledrejection：
+      // 保留上一帧状态，由下一次 tick 再对齐。
+      void pullPanelState().then((s) => { if (alive) setSnap(s) }, () => { /* 保留上一帧 */ })
       if (alive) publishBounds()
     }
     pull()
