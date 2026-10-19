@@ -370,7 +370,12 @@ async function readManifest(dir) {
 }
 
 async function writeManifest(dir, snap) {
-  await fs.writeFile(join(dir, 'manifest.json'), JSON.stringify(snap, null, 2), 'utf8');
+  // manifest 是整份快照的唯一索引：直接覆盖写一旦被打断，readManifest 解析失败，
+  // listSnapshots 会把整份快照当「坏目录」静默忽略（而快照目录里的文件其实都还在）。
+  const target = join(dir, 'manifest.json');
+  const tmp = `${target}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(snap, null, 2), 'utf8');
+  await fs.rename(tmp, target);
 }
 
 /** All directories that may hold snapshots (manual, auto, legacy root). */
@@ -2488,7 +2493,10 @@ async function appendRollbackLog(cfg, entry) {
     text += line;
     const lines = text.split(/\r?\n/).filter(Boolean);
     if (lines.length > 100) text = lines.slice(lines.length - 100).join('\n') + '\n';
-    await fs.writeFile(file, text, 'utf8');
+    // 整份重写非原子：回滚过程中被杀会留下半截 JSON 行，读它的人拿到残缺历史。
+    const tmp = `${file}.tmp`;
+    await fs.writeFile(tmp, text, 'utf8');
+    await fs.rename(tmp, file);
   } catch { /* logging must never break rollback */ }
 }
 
