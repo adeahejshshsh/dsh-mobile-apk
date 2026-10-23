@@ -30,6 +30,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import { ExportResultDialog } from './ExportResultDialog.tsx'
 import { MOBILE_SETTINGS_CSS } from './mobile-settings.css.ts'
+import { APPEARANCE_ROW_CSS } from './appearance-row.css.ts'
 import { MobileSettingsNav } from './mobile/settings-nav.ts'
 import { COMPOSER_MENU_CSS } from './composer-menu.css.ts'
 import { ATTACHMENT_PICKER_MENU_CSS } from './attachment-picker-menu.css.ts'
@@ -190,6 +191,10 @@ export function apply(ctx: ClientContext): void {
   // upstream CSS Modules class names are hashed and unreachable from here,
   // so the stylesheet targets the dialog's ARIA attributes instead.
   ctx.effect(() => injectStyle('mobile-settings', MOBILE_SETTINGS_CSS), 'ui-responsive: mobile settings styles')
+
+  // 设置 → 通用设置 → 外观：上游三个主题卡片（flex:180px + 20px 内边距）在竖屏下逐张堆叠，
+  // 整块约 330px。压成一行紧凑选项，只认「恰好三个 aria-pressed 按钮」的外观组。
+  ctx.effect(() => injectStyle('appearance-row', APPEARANCE_ROW_CSS), 'ui-responsive: appearance row compaction')
 
   // 0.14.7-B 竖屏设置分层：设置首页（分类列表）→ 二级页（可操作设置）。列表本身仍由上游按注册
   // 顺序渲染（不硬编码、不排序、不隐藏注册项）；本容器只写层级属性 + 返回控件 + 我方自有分区的
