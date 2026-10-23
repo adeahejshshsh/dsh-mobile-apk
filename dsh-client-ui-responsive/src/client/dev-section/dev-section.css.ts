@@ -74,19 +74,6 @@ export const DEV_SECTION_CSS: string = `
   cursor: default;
 }
 
-/* Language mode choices: three buttons in one row, the active one filled. */
-.dsh-dev-lang-choices {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.dsh-dev-btn-active {
-  border-color: var(--dsw-alias-state-success-primary, var(--dsw-alias-border-l3));
-  background: var(--dsw-alias-state-success-primary, var(--dsw-alias-button-elevated-fill));
-  color: var(--dsw-alias-label-primary-inverted);
-}
-
 .dsh-dev-danger {
   border-color: var(--dsw-alias-state-error-primary);
   color: var(--dsw-alias-state-error-primary);
