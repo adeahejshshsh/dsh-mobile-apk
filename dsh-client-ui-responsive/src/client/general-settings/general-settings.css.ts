@@ -9,15 +9,14 @@
  * ShortcutReference 同规）。两种行规并排在同一张列表里，就是用户反馈的「设置页有些 UI
  * 很突兀、和别的 UI 差别很大」——同一个页面里出现两套字号/控件/分隔线。
  *
- * 本表只描述行骨架与错误回执；控件一律取上游 ui-primitives（Switch / SegmentedControl），
+ * 本表只描述行骨架与错误回执；控件取上游 ui-primitives 的 Switch，
  * 颜色、圆角、字体全部走 --dsw-* 语义令牌，亮暗主题自动跟随，不新造任何颜色。
  *
  * 行选择器带上 `[data-plugin='android-general']`：本插件其余样式表（composer、终端卡片等）
  * 也用短类名注入到同一个文档，加根前缀才不会互相串味。
  *
  * 圆角（2026-10-23）：本分区不手绘圆角控件——开关取上游 Switch（它自带
- * `corner-shape: round`，见 ui-primitives 的 Switch.module.css），语言取上游
- * SegmentedControl（与上游同样跟随全局超椭圆）。主题在 `*`、`::before`、`::after` 上统一设了
+ * `corner-shape: round`，见 ui-primitives 的 Switch.module.css）。主题在 `*`、`::before`、`::after` 上统一设了
  * `corner-shape: superellipse(1.5)`，手绘胶囊/圆点若不显式写 `corner-shape: round`，999px / 50%
  * 会被画成方圆角（同一版皮肤插件 1.0.0 在真机上就踩过：轨道发平、圆点变方块）。将来若在这里
  * 手绘圆角控件，照上游 Switch 写两处 `corner-shape: round`。
@@ -63,19 +62,6 @@ export const GENERAL_SETTINGS_CSS: string = `
   display: flex;
   flex: none;
   align-items: center;
-}
-
-/* 语言行：三个分段标签与标题同排时，360px 竖屏（英文更宽）会把标题挤成一条竖排窄柱，
-   故改为「标题 + 说明」在上、控件在下的堆叠行，控件按自身宽度左对齐——上游 AppearanceRow
-   也是标题在上、控件在下。 */
-[data-plugin='android-general'] > .dsh-gs-row.dsh-gs-stacked {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 12px;
-}
-
-.dsh-gs-stacked > .dsh-gs-control {
-  align-self: flex-start;
 }
 
 /* 写失败回执（S3-17）：字号与上游错误行一致，颜色走错误语义令牌。 */

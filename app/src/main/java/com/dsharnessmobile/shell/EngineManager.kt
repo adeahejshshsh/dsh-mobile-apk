@@ -1348,6 +1348,10 @@ class EngineManager(private val context: Context, private val pickToken: String?
     lastStartRefusal = null
     lastStartRefusalCode = null
     lastStartRefusalConfirmed = emptyList()
+    // 启动时按系统语言落一次具体 locale：「跟随系统」不再是设置页里的可见选项。
+    // 非中文一律 en（zh / zh-CN / zh-HK / zh-TW 等 zh-* 都算中文）；显式选过语言的用户
+    // 由 dshLocale 的 mode 分支返回自己的选择，这里不会覆盖。
+    AppLanguage.syncDshLocale(context)
     snapshotFingerprintProblem()?.let { problem ->
       lastStartRefusalCode = REFUSAL_RUNTIME_UNAVAILABLE
       lastStartRefusal = problem.failureCode + ": " + problem.detail

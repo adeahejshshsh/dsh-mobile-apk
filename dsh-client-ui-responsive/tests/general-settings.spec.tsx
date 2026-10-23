@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 // ST-10 页侧回归（离线）：沉浸式开关的初值必须以壳桥 getImmersiveMode() 为准，
 // localStorage 只在桥缺失时兜底（旧实现以 localStorage 为初值 → 与壳侧真值分裂）。
-// 2026-10-23：本分区的控件换成上游 Switch / SegmentedControl（不再用原生 checkbox +
-// 描边按钮），所以断言从 `input.checked` 改为开关的 `aria-checked`；行为断言一条未减，
+// 2026-10-23：本分区的控件换成上游 Switch（不再用原生 checkbox +
+// 描边按钮）；2026-10-24 语言行退役，所以断言从 `input.checked` 改为开关的 `aria-checked`；
 // 另加一组结构断言：本页不允许再出现浏览器原生勾选框，行骨架必须是通用设置的行规。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act } from 'react'
@@ -13,7 +13,6 @@ import { LEFT_SWIPE_KEY, RIGHT_SWIPE_KEY } from '../src/client/mobile/sidebar-ge
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
 const KEY = 'dsh.android.immersive'
-const LANGUAGE_ID = 'dsh-android-general-language'
 
 let root: Root | undefined
 let host: HTMLElement | undefined
@@ -165,31 +164,6 @@ describe('GeneralSettings 左右侧栏滑动开关（#335）', () => {
   })
 })
 
-// ── 语言三键（#424）：桥方法必须带着 androidBridge 这个接收者调用 ───────────────
-describe('GeneralSettings 语言三键（#424）', () => {
-  it('点击语言键时保留桥对象接收者，选中态跟随写入结果', async () => {
-    const calls: string[] = []
-    // 模拟 Java 注入对象：解构后调用会丢掉接收者，这里直接断言接收者仍是桥对象。
-    const bridge = {
-      getImmersiveMode: () => true,
-      getUiLanguage: () => (calls.length === 0 ? 'system' : calls[calls.length - 1]),
-      setUiLanguage(this: { calls: string[] }, mode: string) {
-        expect(this.calls).toBe(calls)
-        calls.push(mode)
-        return mode
-      },
-      calls,
-    }
-    await render(bridge)
-    const english = host!.querySelector<HTMLButtonElement>(`#${LANGUAGE_ID}-en`)!
-    expect(english).not.toBeNull()
-    expect(english.getAttribute('aria-selected')).toBe('false')
-    await act(async () => { english.click() })
-    expect(calls).toEqual(['en'])
-    expect(host!.querySelector(`#${LANGUAGE_ID}-en`)!.getAttribute('aria-selected')).toBe('true')
-  })
-})
-
 // ── 2026-10-23：设置页观感回归。用户反馈「设置页有些 UI 很突兀、和别的 UI 差别很大」：
 // 本分区曾用 16px 原生勾选框（系统蓝）+ 绿色选中态描边按钮 + 13px 提示，与同页上游行并列。
 // 结构断言锁死这三类外观：原生勾选框不得回归，行数/行骨架必须与上游行同规。
@@ -200,28 +174,20 @@ describe('GeneralSettings 行骨架与上游通用设置一致（2026-10-23）',
     expect(host!.querySelectorAll('[role="switch"]')).toHaveLength(3)
   })
 
-  it('每个设置项是一行：标题 + （可选）说明 + 右侧控件', async () => {
+  it('每个设置项是一行：标题 + 说明 + 右侧开关', async () => {
     await render()
     const rows = [...host!.querySelectorAll('[data-plugin="android-general"] > .dsh-gs-row')]
-    expect(rows).toHaveLength(4)
+    expect(rows).toHaveLength(3)
     for (const row of rows) {
       expect(row.querySelector('.dsh-gs-title')?.textContent).toBeTruthy()
-    }
-    // 语言行是堆叠行（控件在标题下方），其余三行右侧放开关。
-    expect(rows[0]!.classList.contains('dsh-gs-stacked')).toBe(true)
-    for (const row of rows.slice(1)) {
       expect(row.querySelector('[role="switch"]')).not.toBeNull()
     }
   })
 
-  it('语言用上游分段控件（tablist + aria-selected），不是自绘绿色按钮', async () => {
+  it('不再渲染语言行（语言只保留上游 locale 行；壳侧启动时按系统语言写好具体值）', async () => {
     await render()
-    const tablist = host!.querySelector('[role="tablist"]')
-    expect(tablist).not.toBeNull()
-    expect(tablist!.getAttribute('aria-label')).toBe('界面语言')
-    const tabs = [...tablist!.querySelectorAll('[role="tab"]')]
-    expect(tabs).toHaveLength(3)
-    expect(tabs.filter(tab => tab.getAttribute('aria-selected') === 'true')).toHaveLength(1)
+    expect(host!.querySelector('[data-dsh-ui-language]')).toBeNull()
+    expect(host!.querySelector('[role="tablist"]')).toBeNull()
     // 旧实现的自绘按钮类名与 data 钩子必须彻底消失，防止样式表重新长出第二套按钮。
     expect(host!.querySelector('.dsh-dev-btn')).toBeNull()
     expect(host!.querySelector('[data-ui-language-mode]')).toBeNull()

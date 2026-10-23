@@ -86,18 +86,31 @@ internal object AppLanguage {
   fun isForced(context: Context): Boolean = mode(context) != MODE_SYSTEM
 
   /**
-   * Mirror the preference into the profile patch dsh actually reads.
+   * Mirror the resolved locale into the profile patch dsh actually reads.
    *
    * dsh 0.2.x stores this namespace in `profiles/web/cordis.patch.yml`; the
-   * old `settings.yaml` section is only imported once and no longer read. A
-   * forced mode writes `- id: locale` with `config.preference`; following the
-   * system removes that preference so dsh falls back to the system languages
-   * supplied by the WebView bridge.
-   * @return true when the patch now matches the preference.
+   * old `settings.yaml` section is only imported once and no longer read.
+   *
+   * 2026-10-24: 「跟随系统」不再是设置页里的一个选项——壳侧在启动时把系统语言解析成
+   * 具体 locale 写进 `- id: locale`（`dshLocale`：非中文一律 `en`，`zh`/`zh-CN`/
+   * `zh-HK`/`zh-TW` 等 `zh-*` 都算中文）。因此这里始终写具体值；用户在上游语言行里
+   * 显式选择后会走 `setMode`，下次启动不再被系统语言覆盖。
+   * @return true when the patch now matches the resolved locale.
    */
-  fun syncDshLocale(context: Context): Boolean {
+  fun syncDshLocale(context: Context): Boolean = syncDshLocale(context, dshLocale(context))
+
+  /**
+   * Write one concrete dsh locale into the profile patch.
+   *
+   * Kept separate so startup can resolve the system language once and write it
+   * without touching the stored shell mode: a profile that still says "system"
+   * keeps following the device on every launch, while an explicit choice from
+   * the upstream language row stores `zh`/`en` and wins from then on.
+   * @param locale - `zh` or `en`.
+   * @return true when the patch now matches the locale.
+   */
+  fun syncDshLocale(context: Context, locale: String): Boolean {
     val file = profilePatchFile(context) ?: return false
-    val locale = if (mode(context) == MODE_SYSTEM) null else dshLocale(context)
     return try {
       val original = if (file.exists()) file.readText() else ""
       val updated = withDshLocalePreference(original, locale)

@@ -119,6 +119,17 @@ class AppLanguageTest {
   }
 
   @Test
+  fun expectedLocaleTreatsEveryChineseVariantAsChinese() {
+    // 启动时按系统语言落 locale：港/台/大陆及带文字变体的 zh-* 都算中文，其余一律英文。
+    assertEquals("zh", AppLanguage.expectedLocale("system", listOf("zh-HK")))
+    assertEquals("zh", AppLanguage.expectedLocale("system", listOf("zh-TW")))
+    assertEquals("zh", AppLanguage.expectedLocale("system", listOf("zh-Hant-TW")))
+    assertEquals("zh", AppLanguage.expectedLocale("system", listOf("zh-Hans-CN")))
+    assertEquals("en", AppLanguage.expectedLocale("system", listOf("en-GB")))
+    assertEquals("en", AppLanguage.expectedLocale("system", listOf("ja-JP")))
+  }
+
+  @Test
   fun expectedLocaleIsTheForcedLanguage() {
     assertEquals("zh", AppLanguage.expectedLocale("zh", listOf("en-US")))
     assertEquals("en", AppLanguage.expectedLocale("en", listOf("zh-CN")))
