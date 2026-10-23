@@ -14,6 +14,13 @@
  *
  * 行选择器带上 `[data-plugin='android-general']`：本插件其余样式表（composer、终端卡片等）
  * 也用短类名注入到同一个文档，加根前缀才不会互相串味。
+ *
+ * 圆角（2026-10-23）：本分区不手绘圆角控件——开关取上游 Switch（它自带
+ * `corner-shape: round`，见 ui-primitives 的 Switch.module.css），语言取上游
+ * SegmentedControl（与上游同样跟随全局超椭圆）。主题在 `*`、`::before`、`::after` 上统一设了
+ * `corner-shape: superellipse(1.5)`，手绘胶囊/圆点若不显式写 `corner-shape: round`，999px / 50%
+ * 会被画成方圆角（同一版皮肤插件 1.0.0 在真机上就踩过：轨道发平、圆点变方块）。将来若在这里
+ * 手绘圆角控件，照上游 Switch 写两处 `corner-shape: round`。
  */
 export const GENERAL_SETTINGS_CSS: string = `
 [data-plugin='android-general'] {

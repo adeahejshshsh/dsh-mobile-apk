@@ -42,3 +42,21 @@
   分段控件不折行。该页是本地核对件，不随仓库提交。
 - **未做设备验证**：只改了页面侧 runtime（`@dsh-android/dsh-client-ui-responsive`），未在模拟器/真机上
   跑三层验收；按 AGENTS §4.2 在 PR 里显式标注，进入发版候选前需补验。
+
+## 5. 开关四角：全局 `corner-shape` 的坑（2026-10-23 同日补记）
+
+现象：同一版视觉做成「皮肤插件」装机后，开关轨道两端发平、圆点变成小方块——不是圆角值不够大，
+是四角被画成了超椭圆。
+
+真因：`ui-theme` 的 `corner-shape.css` 在 `*`、`::before`、`::after` 上统一设了
+`corner-shape: superellipse(1.5)`（`@supports` 包住）。自绘胶囊写 `border-radius:999px`、圆点写
+`50%` 都仍被这条全局规则接管，渲染成方圆角。上游 `ui-primitives` 的 `Switch.module.css` 正是为此在
+轨道与圆点各写了一处 `corner-shape: round`。
+
+本 PR 的内置实现不受影响：开关直接用上游 `Switch`（自带两处 `corner-shape: round`），语言直接用上游
+`SegmentedControl`（与上游一致地跟随全局超椭圆），本表也没有任何手绘圆角。把它记在这里是为了下次
+有人在本分区手绘胶囊/圆点时不再踩：照上游 Switch 写 `corner-shape: round`，而不是把 `border-radius`
+往大里加。
+
+复验：7 倍放大对照（同尺寸、同令牌，仅差 `corner-shape`），未退出的一版轨道两端平直、圆点是圆角方块；
+加上 `corner-shape: round` 后与上游 Switch 逐像素同形。
