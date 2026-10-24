@@ -27,6 +27,23 @@
         /** 构建戳：build.mjs 用源码哈希替换；与宿主 /api/session-delete-version 比对。 */
         var BUILD_STAMP = '__BUILD_STAMP__'
         /**
+         * Session currently rendered on screen.
+         *
+         * `[data-conversation-session]` is the conversation body's own id (present for
+         * the main view and for panels); the `<html data-dsh-session-id>` marker is the
+         * shell's hint and is only a fallback.
+         * @returns {string|null} mounted session id.
+         */
+        function mountedSessionId() {
+          var body = document.querySelector('[data-conversation-session]')
+          if (body !== null) {
+            var fromBody = body.getAttribute('data-conversation-session')
+            if (fromBody !== null && fromBody !== '') return fromBody
+          }
+          return document.documentElement.getAttribute('data-dsh-session-id')
+        }
+
+        /**
          * Per-attempt timeout. A local delete answers in ~20ms; anything slower than
          * this is a dead keep-alive socket left over from an engine restart, and
          * aborting it makes the browser drop that socket. 2s keeps the dialog honest
@@ -334,13 +351,18 @@
          */
         function afterDeleted(sessionId, data) {
           // 会话已从 Host live 集合卸载（api-session/removed 会广播），侧栏/搜索/历史
-          // 由引擎自己刷新，客户端不做任何隐藏或跳转。
+          // 由引擎自己刷新。唯一要处理的是「删的就是屏幕上这条」：卸载后主视图没有可显示的
+          // 会话，重载一次让应用落到新对话（不调用任何 private 导航接口）。
+          var mounted = mountedSessionId()
+          var wasMounted = mounted === sessionId
           reportTrace({
             sessionId: sessionId,
-            decision: 'unloaded-and-deleted',
+            decision: wasMounted ? 'reload-because-mounted' : 'unloaded-and-deleted',
+            mountedBefore: mounted,
             alreadyGone: data !== undefined && data.alreadyGone === true,
             url: window.location.href,
           })
+          if (wasMounted) window.location.reload()
         }
 
         /**

@@ -39,9 +39,10 @@ function createReact() {
 }
 
 /** 载入客户端 bundle，返回 { apply }。 */
-function loadClient() {
+function loadClient(options = {}) {
   let factory = null
   const sent = []
+  const reloads = []
   const storage = new Map()
   const react = createReact()
   const primitives = {
@@ -65,7 +66,7 @@ function loadClient() {
         removeItem: (k) => { storage.delete(k) },
       },
       sessionStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
-      location: { href: 'http://127.0.0.1:3080/', reload: () => {} },
+      location: { href: 'http://127.0.0.1:3080/', reload: () => { reloads.push(Date.now()) } },
       addEventListener: () => {},
     },
     document: {
@@ -73,7 +74,10 @@ function loadClient() {
       head: { appendChild: () => {} },
       getElementById: () => null,
       createElement: () => ({ dataset: {}, remove: () => {} }),
-      querySelector: () => null,
+      querySelector: (selector) => {
+        if (options.mountedId === undefined || selector !== '[data-conversation-session]') return null
+        return { getAttribute: () => options.mountedId }
+      },
       querySelectorAll: () => [],
       visibilityState: 'visible',
     },
@@ -91,7 +95,7 @@ function loadClient() {
   vm.runInContext(SOURCE, sandbox)
   assert.equal(typeof factory, 'function', 'client bundle did not call __ModuleLoader__.load')
   const module = factory((id) => (id === 'react' ? react : primitives))
-  return { module, react, sent, FakeXHR, sandbox }
+  return { module, react, sent, FakeXHR, sandbox, reloads }
 }
 
 test('menu item click opens the overlay and the confirm button sends the request', async () => {
@@ -138,4 +142,37 @@ test('menu item click opens the overlay and the confirm button sends the request
   assert.equal(sent[0].url, '/api/session-delete')
   assert.equal(JSON.parse(sent[0].body).sessionId, 'session-11111111-1111-4111-8111-111111111111')
   assert.equal(FakeXHR.instances.length >= 1, true)
+})
+
+test('deleting the conversation on screen reloads the page (no private navigation)', async () => {
+  const SESSION = 'session-22222222-2222-4222-8222-222222222222'
+  const { module, react, FakeXHR, reloads } = loadClient({ mountedId: SESSION })
+  const registrations = []
+  module.apply({
+    get: () => undefined,
+    effect: (fn) => fn(),
+    locale: { register: () => () => {} },
+    slots: { inject: (_n, f) => { registrations.push(f()) }, register: (def, component) => ({ def, component }) },
+  })
+  const menu = registrations.find((r) => r.def.name === 'sidebar.workspaces.session.menu.item')
+  const overlay = registrations.find((r) => r.def.name === 'shell.overlay')
+  const t = (k) => k
+  const menuTree = react.render(menu.component, {
+    sessionId: SESSION,
+    displayTitle: 'x',
+    useMenuOpenState: () => [true, () => {}],
+    t,
+  })
+  menuTree.props.onSelect()
+  const dialog = react.render(overlay.component, { t })
+  const inner = react.render(dialog.type, dialog.props)
+  inner.props.footer.props.children[1].props.onClick()
+
+  const xhr = FakeXHR.instances.at(-1)
+  xhr.status = 200
+  xhr.responseText = '{"ok":true,"sessionId":"' + SESSION + '"}'
+  xhr.onload()
+  for (let i = 0; i < 8; i += 1) await Promise.resolve()
+
+  assert.equal(reloads.length, 1, 'deleting the mounted conversation must reload the page')
 })
