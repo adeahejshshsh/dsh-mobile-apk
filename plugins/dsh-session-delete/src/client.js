@@ -22,6 +22,10 @@
         var h = react.createElement
 
         var NS = 'session-delete'
+        /** Same tag as the host half so device logs can be grepped by one string. */
+        var TAG = '[dsh-session-delete]'
+        /** 构建戳：build.mjs 用源码哈希替换；与宿主 /api/session-delete-version 比对。 */
+        var BUILD_STAMP = '__BUILD_STAMP__'
         /**
          * Per-attempt timeout. A local delete answers in ~20ms; anything slower than
          * this is a dead keep-alive socket left over from an engine restart, and
@@ -385,7 +389,6 @@
         function DeleteConfirmDialog(props) {
           var target = usePending()
           if (target === null) return null
-          localTrace('dialog-render', { sessionId: target.sessionId })
           // key 换成会话 id：换一条对话时组件重新挂载，busy/error 不会从上一次
           // 删除残留过来（否则删完 A 再点 B，会直接看到 A 的错误）。
           return h(ConfirmSessionDelete, { key: target.sessionId, target: target, t: props.t })
@@ -399,7 +402,6 @@
         function ConfirmSessionDelete(props) {
           var t = props.t
           var target = props.target
-          localTrace('dialog-mounted', { sessionId: target.sessionId })
           var busyPair = react.useState(false)
           var busy = busyPair[0]
           var setBusy = busyPair[1]
