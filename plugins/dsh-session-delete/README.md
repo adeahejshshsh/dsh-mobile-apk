@@ -47,10 +47,12 @@
 ## 验证
 
 - `node plugins/dsh-session-delete/test/session-delete.test.mjs`：**21 项全过**（核心 + host 编排）
-- `node plugins/dsh-session-delete/test/host-routes.test.mjs`：**8 项全过**（假 webServer 直驱三条路由：
-  401/405/400 invalid-id/400 invalid-body/409 activity-unknown/404 not-found/403 版本路由）
-- `node plugins/dsh-session-delete/test/client-wiring.test.mjs`：**4 项全过**（无头 vm + 最小 React：
-  点菜单 → 弹窗 → 确认 → 发请求；删当前会话 → 重载；超时重试到失败并记录错误码；404 幂等）
+- `node plugins/dsh-session-delete/test/host-routes.test.mjs`：**11 项全过**（假 webServer 直驱三条路由：
+  401/403/405/400 invalid-id/400 invalid-body/409 activity-unknown/404 not-found，
+  以及成功路径——200 + 会话被卸载 + 目录被删；trace 路由的 POST/405；版本路由返回 stamp）
+- `node plugins/dsh-session-delete/test/client-wiring.test.mjs`：**5 项全过**（无头 vm + 最小 React：
+  点菜单 → 弹窗 → 确认 → 发请求；删当前会话 → 重载；超时重试到失败并记录错误码；404 幂等；
+  待办续做——重载后自动发请求并清掉待办）
   （非法 id / 不存在 / 运行中拒绝 / live 先卸载再删 / detach 抛错报 unload-failed 且文件不动 /
   无卸载能力同样报错且文件不动 / 目录不存在时报 not-found 且会话仍在 live / 正常删除 + 记账顺序 / 重复命中不删 / 目录定位 /
   host 编排拒绝 / 归档置顶清理顺序 / 每步日志 / 探测抛错与非数组拒绝 / 无瀑布拒绝 /

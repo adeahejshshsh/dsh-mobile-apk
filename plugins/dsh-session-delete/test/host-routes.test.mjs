@@ -1,7 +1,7 @@
 // 直接驱动 host 的三条路由：鉴权、方法、请求体上限、错误码映射。
 // 这些分支此前只靠 curl 手工验证，回归没有覆盖。
 import assert from 'node:assert/strict'
-import { mkdtemp } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -119,4 +119,60 @@ test('the version route answers the build stamp without auth bypass', async () =
 
 test('removeSession is exported for direct use and validates the id', async () => {
   await assert.rejects(removeSession({ get: () => undefined }, 'nope'), (e) => e.code === 'invalid-id')
+})
+
+/** 造一个 live 会话目录（含 session.lock / 日志文件）。 */
+async function makeSession(home, id) {
+  const dir = join(home, 'sessions', '--workspace--', id)
+  await mkdir(dir, { recursive: true })
+  await writeFile(join(dir, 'session.lock'), '')
+  await writeFile(join(dir, 'session.v4.jsonl.zstd'), 'x')
+  return dir
+}
+
+/** 可卸载的假 sessions 服务。 */
+function liveSessions(id) {
+  const state = { live: true }
+  return {
+    state,
+    get: () => (state.live ? { id, header: { id } } : undefined),
+    liveEntryFor: () => ({ detach: () => { state.live = false } }),
+  }
+}
+
+test('a successful route call unloads the session and removes the directory', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-routes-ok-'))
+  const previous = process.env.DSH_HOME
+  process.env.DSH_HOME = home
+  const id = 'session-55555555-5555-4555-8555-555555555555'
+  try {
+    const dir = await makeSession(home, id)
+    const sessions = liveSessions(id)
+    const { routes } = makeHost({ sessions, waterfall: async () => [], registry: {} })
+    const res = await call(routes, '/api/session-delete', request('POST', { sessionId: id }))
+    assert.equal(res.status, 200)
+    assert.equal(res.json.ok, true)
+    assert.equal(sessions.state.live, false, 'the session must be unloaded')
+    assert.deepEqual(await readdir(join(home, 'sessions', '--workspace--')), [], 'the directory must be gone')
+    assert.equal(dir.includes(id), true)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previous
+  }
+})
+
+test('the trace route accepts POST and rejects other methods', async () => {
+  const { routes } = makeHost()
+  const ok = await call(routes, '/api/session-delete-trace', request('POST', { event: 'x' }))
+  assert.equal(ok.status, 200)
+  const bad = await call(routes, '/api/session-delete-trace', request('GET'))
+  assert.equal(bad.status, 405)
+})
+
+test('the version route returns a stamp', async () => {
+  const { routes } = makeHost()
+  const res = await call(routes, '/api/session-delete-version', request('GET'))
+  assert.equal(res.status, 200)
+  assert.equal(typeof res.json.stamp, 'string')
+  assert.notEqual(res.json.stamp, '')
 })

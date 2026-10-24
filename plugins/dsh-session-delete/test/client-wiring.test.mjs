@@ -57,6 +57,9 @@ function loadClient(options = {}) {
     send(body) { this.body = body; sent.push({ method: this.method, url: this.url, body }) }
   }
   FakeXHR.instances = []
+  if (options.pending !== undefined) {
+    storage.set('dsh.session-delete.pending', JSON.stringify({ sessionId: options.pending, at: Date.now() }))
+  }
   const context = {
     window: {
       __ModuleLoader__: { load: ({ factory: f }) => { factory = f } },
@@ -239,4 +242,25 @@ test('a 404 carrying not-found is treated as already deleted', async () => {
   assert.equal(trace.some((row) => row.step === 'deleted'), true, '404 must count as deleted')
   assert.equal(trace.some((row) => row.step === 'failed'), false, '404 must not be reported as failure')
   assert.equal(reloads.length, 0, 'nothing mounted ⇒ no reload')
+})
+
+test('a pending delete from a previous page resumes automatically', async () => {
+  const SESSION = 'session-66666666-6666-4666-8666-666666666666'
+  const { module, FakeXHR, storage } = loadClient({ pending: SESSION })
+  module.apply({
+    get: () => undefined,
+    effect: (fn) => fn(),
+    locale: { register: () => () => {} },
+    slots: { inject: () => {}, register: () => ({}) },
+  })
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  assert.equal(FakeXHR.instances.length, 1, 'resume must fire the request without user input')
+  assert.equal(JSON.parse(FakeXHR.instances[0].body).sessionId, SESSION)
+
+  const xhr = FakeXHR.instances[0]
+  xhr.status = 200
+  xhr.responseText = '{"ok":true}'
+  xhr.onload()
+  for (let i = 0; i < 12; i += 1) await Promise.resolve()
+  assert.equal(storage.has('dsh.session-delete.pending'), false, 'resume success must clear the pending entry')
 })

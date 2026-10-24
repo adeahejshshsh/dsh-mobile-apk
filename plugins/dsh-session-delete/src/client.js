@@ -206,8 +206,6 @@
           cursor: 'pointer',
         }
 
-        /** Client context, captured in apply so the overlay can reach upstream services. */
-        var pluginCtx = null
         /** 待办删除：请求卡死时先重载页面，重载后自动续做（幂等）。 */
         var PENDING_KEY = 'dsh.session-delete.pending'
         /** 客户端步骤留痕（localStorage，断网也能读；诊断用）。 */
@@ -498,7 +496,6 @@
 
         /** @param {object} ctx - cordis client context. */
         function apply(ctx) {
-          pluginCtx = ctx
           // 自证：页面里的这份代码能否连通 host。engine.log 里看到这条，说明
           // 浏览器→引擎这条路是通的；看不到就说明页面还是旧连接/旧 bundle。
           setTimeout(function () {
