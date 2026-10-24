@@ -98,12 +98,11 @@ export async function findSessionDir(root, sessionId) {
  * @param {boolean} options.isActive - whether any provider reports running work for the session.
  * @param {(info: { sessionId: string, dir: string }) => Promise<void>} [options.beforeRemove] - bookkeeping hook (unarchive/unpin).
  * @param {(info: { sessionId: string, dir: string }) => Promise<void>} [options.afterResolve] - runs once the directory is confirmed (unload the live session).
- * @param {(info: { sessionId: string, dir: string }) => Promise<void>} [options.afterRename] - runs after the directory left the scan path.
  * @param {(level: 'info'|'warn'|'error', message: string, extra?: object) => void} [options.logger] - step logger.
  * @returns {Promise<{ ok: true, sessionId: string, dir: string }>} outcome.
  * @throws {SessionDeleteError} on every refused state.
  */
-export async function deleteStoredSession({ home, sessionId, isActive, beforeRemove, afterResolve, afterRename, logger }) {
+export async function deleteStoredSession({ home, sessionId, isActive, beforeRemove, afterResolve, logger }) {
   const log = typeof logger === 'function' ? logger : () => {}
   assertSessionId(sessionId)
   log('info', 'delete requested', { sessionId, isActive: isActive === true })
@@ -127,17 +126,6 @@ export async function deleteStoredSession({ home, sessionId, isActive, beforeRem
   try {
     log('info', 'moving session directory out of the scan path', { sessionId, from: dir, to: graveyard })
     await rename(dir, graveyard)
-    // 改名成功 = 已越过不可回退点：这时才卸载内存会话。若放在改名之前，删除失败
-    // 会让用户丢掉正在看的会话、而文件还在（重启后又冒出来）。
-    // 这个钩子是 best-effort：它失败不能让已经改名的目录留在 .deleting-* 里，
-    // 更不能把「文件已删」报成失败。
-    if (typeof afterRename === 'function') {
-      try {
-        await afterRename({ sessionId, dir })
-      } catch (error) {
-        log('warn', 'post-rename hook failed (ignored)', { sessionId, error: String(error?.message ?? error) })
-      }
-    }
     log('info', 'removing session directory', { sessionId, dir: graveyard })
     await rm(graveyard, { recursive: true, force: true })
     log('info', 'session deleted', { sessionId })

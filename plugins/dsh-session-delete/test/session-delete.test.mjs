@@ -330,19 +330,6 @@ test('a running session is refused before any file work happens', async () => {
   }
 })
 
-test('a failing post-rename hook never leaves a renamed directory behind', async () => {
-  const home = await homeWith([ID])
-  const result = await deleteStoredSession({
-    home,
-    sessionId: ID,
-    afterRename: async () => { throw new Error('detach exploded') },
-  })
-  assert.equal(result.ok, true)
-  assert.deepEqual(await readdir(join(sessionsRoot(home), '--workspace--')), [])
-  const leftovers = (await readdir(join(sessionsRoot(home), '--workspace--'))).filter((n) => n.includes('.deleting-'))
-  assert.deepEqual(leftovers, [])
-})
-
 // ── 接口契约回归：只允许公开接口，禁止再次引入 private API ──────────────────
 import { readFileSync } from 'node:fs'
 

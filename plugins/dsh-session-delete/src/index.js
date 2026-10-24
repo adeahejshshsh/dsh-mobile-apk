@@ -20,7 +20,7 @@ import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { SessionDeleteError, deleteStoredSession } from './session-delete.js'
+import { SessionDeleteError, assertSessionId, deleteStoredSession } from './session-delete.js'
 
 /** Log tag shared with the client half so device logs can be grepped by one string. */
 const TAG = '[dsh-session-delete]'
@@ -138,7 +138,7 @@ async function readJsonBody(req) {
  * @returns {Promise<Array<{ kind?: string }>>} reported activity (empty when idle).
  */
 async function sessionActivity(ctx, sessionId) {
-  // 老引擎没有 waterfall：返回 null（未知），调用方按「加载过就算忙」保守处理，
+  // 老引擎没有 waterfall：返回 null（未知）。调用方据此**拒绝删除**，
   // 绝不能在无法判断时把可能正在运行的会话删掉。
   if (typeof ctx.waterfall !== 'function') return null
   try {
@@ -204,6 +204,9 @@ function unloadLiveSession(ctx, sessionId) {
 }
 
 export async function removeSession(ctx, sessionId) {
+  // 先做纯校验：非法 id 必须在探测活动之前就返回 invalid-id（400），
+  // 否则会被报成 activity-unknown（409），错误归因完全错位。
+  assertSessionId(sessionId)
   const sessions = ctx.get('sessions')
   const live = sessions?.get?.(sessionId) !== undefined
   const activity = await sessionActivity(ctx, sessionId)

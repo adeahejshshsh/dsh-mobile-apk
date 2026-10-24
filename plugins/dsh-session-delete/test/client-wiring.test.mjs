@@ -95,7 +95,7 @@ function loadClient(options = {}) {
   vm.runInContext(SOURCE, sandbox)
   assert.equal(typeof factory, 'function', 'client bundle did not call __ModuleLoader__.load')
   const module = factory((id) => (id === 'react' ? react : primitives))
-  return { module, react, sent, FakeXHR, sandbox, reloads }
+  return { module, react, sent, FakeXHR, sandbox, reloads, storage }
 }
 
 test('menu item click opens the overlay and the confirm button sends the request', async () => {
@@ -175,4 +175,68 @@ test('deleting the conversation on screen reloads the page (no private navigatio
   for (let i = 0; i < 8; i += 1) await Promise.resolve()
 
   assert.equal(reloads.length, 1, 'deleting the mounted conversation must reload the page')
+})
+
+/** 打开确认框并点「删除」，返回当前 XHR 实例。 */
+function clickConfirm(module, react) {
+  const registrations = []
+  module.apply({
+    get: () => undefined,
+    effect: (fn) => fn(),
+    locale: { register: () => () => {} },
+    slots: { inject: (_n, f) => { registrations.push(f()) }, register: (def, component) => ({ def, component }) },
+  })
+  const t = (k) => k
+  const menu = registrations.find((r) => r.def.name === 'sidebar.workspaces.session.menu.item')
+  const overlay = registrations.find((r) => r.def.name === 'shell.overlay')
+  const menuTree = react.render(menu.component, {
+    sessionId: 'session-44444444-4444-4444-8444-444444444444',
+    displayTitle: 'x',
+    useMenuOpenState: () => [true, () => {}],
+    t,
+  })
+  menuTree.props.onSelect()
+  const dialog = react.render(overlay.component, { t })
+  const inner = react.render(dialog.type, dialog.props)
+  inner.props.footer.props.children[1].props.onClick()
+}
+
+test('a timeout is retried, and a final failure is recorded with its code', async () => {
+  const { module, react, FakeXHR, storage } = loadClient()
+  clickConfirm(module, react)
+  assert.equal(FakeXHR.instances.length, 1)
+
+  FakeXHR.instances.at(-1).ontimeout()
+  for (let i = 0; i < 8; i += 1) await Promise.resolve()
+  assert.equal(FakeXHR.instances.length, 2, 'timeout must trigger a retry')
+
+  FakeXHR.instances.at(-1).ontimeout()
+  for (let i = 0; i < 8; i += 1) await Promise.resolve()
+  assert.equal(FakeXHR.instances.length, 3, 'second timeout must trigger the last attempt')
+
+  const last = FakeXHR.instances.at(-1)
+  last.status = 409
+  last.responseText = JSON.stringify({ ok: false, error: 'session-active', message: 'running' })
+  last.onload()
+  for (let i = 0; i < 12; i += 1) await Promise.resolve()
+
+  const trace = JSON.parse(storage.get('dsh.session-delete.trace') ?? '[]')
+  const failed = trace.filter((row) => row.step === 'failed')
+  assert.equal(failed.length, 1, 'the failure must be recorded')
+  assert.equal(failed[0].extra.code, 'session-active')
+})
+
+test('a 404 carrying not-found is treated as already deleted', async () => {
+  const { module, react, FakeXHR, storage, reloads } = loadClient()
+  clickConfirm(module, react)
+  const xhr = FakeXHR.instances.at(-1)
+  xhr.status = 404
+  xhr.responseText = JSON.stringify({ ok: false, error: 'not-found', message: 'gone' })
+  xhr.onload()
+  for (let i = 0; i < 12; i += 1) await Promise.resolve()
+
+  const trace = JSON.parse(storage.get('dsh.session-delete.trace') ?? '[]')
+  assert.equal(trace.some((row) => row.step === 'deleted'), true, '404 must count as deleted')
+  assert.equal(trace.some((row) => row.step === 'failed'), false, '404 must not be reported as failure')
+  assert.equal(reloads.length, 0, 'nothing mounted ⇒ no reload')
 })
