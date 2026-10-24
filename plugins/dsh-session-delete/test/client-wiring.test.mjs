@@ -78,8 +78,13 @@ function loadClient(options = {}) {
       getElementById: () => null,
       createElement: () => ({ dataset: {}, remove: () => {} }),
       querySelector: (selector) => {
-        if (options.mountedId === undefined || selector !== '[data-conversation-session]') return null
-        return { getAttribute: () => options.mountedId }
+        if (selector === '[data-conversation-session]' && options.mountedId !== undefined) {
+          return { getAttribute: () => options.mountedId }
+        }
+        if (selector.startsWith('[data-row-key=') && options.rowPresent === true) {
+          return { getAttribute: () => selector }
+        }
+        return null
       },
       querySelectorAll: () => [],
       visibilityState: 'visible',
@@ -263,4 +268,33 @@ test('a pending delete from a previous page resumes automatically', async () => 
   xhr.onload()
   for (let i = 0; i < 12; i += 1) await Promise.resolve()
   assert.equal(storage.has('dsh.session-delete.pending'), false, 'resume success must clear the pending entry')
+})
+
+test('a deleted session whose sidebar row survives triggers one reload', async () => {
+  const SESSION = 'session-77777777-7777-4777-8777-777777777777'
+  const { module, react, FakeXHR, reloads } = loadClient({ rowPresent: true })
+  const registrations = []
+  module.apply({
+    get: () => undefined,
+    effect: (fn) => fn(),
+    locale: { register: () => () => {} },
+    slots: { inject: (_n, f) => { registrations.push(f()) }, register: (def, component) => ({ def, component }) },
+  })
+  const t = (k) => k
+  const menu = registrations.find((r) => r.def.name === 'sidebar.workspaces.session.menu.item')
+  const overlay = registrations.find((r) => r.def.name === 'shell.overlay')
+  const menuTree = react.render(menu.component, {
+    sessionId: SESSION, displayTitle: 'x', useMenuOpenState: () => [true, () => {}], t,
+  })
+  menuTree.props.onSelect()
+  const dialog = react.render(overlay.component, { t })
+  const inner = react.render(dialog.type, dialog.props)
+  inner.props.footer.props.children[1].props.onClick()
+  const xhr = FakeXHR.instances.at(-1)
+  xhr.status = 200
+  xhr.responseText = '{"ok":true}'
+  xhr.onload()
+  for (let i = 0; i < 12; i += 1) await Promise.resolve()
+  await new Promise((resolve) => setTimeout(resolve, 450))
+  assert.equal(reloads.length, 1, 'the surviving row must force one reload')
 })

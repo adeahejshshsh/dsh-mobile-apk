@@ -348,19 +348,31 @@
          * @param {object} data - server payload.
          */
         function afterDeleted(sessionId, data) {
-          // 会话已从 Host live 集合卸载（api-session/removed 会广播），侧栏/搜索/历史
-          // 由引擎自己刷新。唯一要处理的是「删的就是屏幕上这条」：卸载后主视图没有可显示的
-          // 会话，重载一次让应用落到新对话（不调用任何 private 导航接口）。
+          // 删掉的是屏幕上的会话 → 主视图已无会话可显示，重载一次落到新对话。
+          // 删掉的是「没加载过」的会话 → 引擎不会派发 api-session/removed（只有
+          // session/disposed 才发），侧栏那一行会留在原地；这里再查一次 DOM，还在就重载。
           var mounted = mountedSessionId()
           var wasMounted = mounted === sessionId
-          reportTrace({
+          var report = {
             sessionId: sessionId,
-            decision: wasMounted ? 'reload-because-mounted' : 'unloaded-and-deleted',
             mountedBefore: mounted,
             alreadyGone: data !== undefined && data.alreadyGone === true,
             url: window.location.href,
-          })
-          if (wasMounted) window.location.reload()
+          }
+          if (wasMounted) {
+            report.decision = 'reload-because-mounted'
+            reportTrace(report)
+            window.location.reload()
+            return
+          }
+          // 给引擎的 api-session/removed 一点时间把行移除；仍在就重载（幂等、无副作用）。
+          setTimeout(function () {
+            var row = document.querySelector('[data-row-key="session:' + sessionId + '"]')
+            report.rowStillPresent = row !== null
+            report.decision = row === null ? 'row-removed-by-engine' : 'reload-because-row-remains'
+            reportTrace(report)
+            if (row !== null) window.location.reload()
+          }, 400)
         }
 
         /**
