@@ -26,6 +26,15 @@ const VERSION = /\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?/
 /** 抓到的引擎版本；供「关于」页面读取（空 = 尚未抓到）。 */
 let engineVersion = ''
 
+/**
+ * 是否已经成功接管过（内联入口插进去过一次）。
+ *
+ * 导航行的收起判据用它而不是「此刻页面上有没有入口」：回到一级列表时分区内容不渲染，
+ * 内联入口自然不在 DOM 里，若按后者判断就会把导航行放出来——用户反馈「关于又出现在
+ * 一级列表里」。只有从未接管成功（精确文案没找到）时才保留导航行作为兜底入口。
+ */
+let entryInstalled = false
+
 /** 当前已知的引擎版本；空串表示还没从上游那行抓到。 */
 export function getEngineVersion(): string {
   return engineVersion
@@ -85,7 +94,7 @@ export function installAboutEntry(): () => void {
    * `display:none` 与标记一起丢掉，只做一次的话列表里会重新冒出第二个「关于」。
    */
   const syncNavRow = (scope: ParentNode): void => {
-    const hasEntry = scope.querySelector('[data-dsh-about-entry]') !== null
+    const hasEntry = entryInstalled || scope.querySelector('[data-dsh-about-entry]') !== null
     for (const navRow of scope.querySelectorAll<HTMLElement>('nav button')) {
       if (!(navRow.textContent ?? '').includes(tr('关于', 'About'))) continue
       if (hasEntry) {
@@ -159,6 +168,7 @@ export function installAboutEntry(): () => void {
         button.appendChild(label)
         node.insertAdjacentElement('afterend', button)
       }
+      entryInstalled = true
       // 同一轮就收起导航行：只靠下一轮 observer 的话，页面若不再变化就不会执行。
       syncNavRow(scope)
       return

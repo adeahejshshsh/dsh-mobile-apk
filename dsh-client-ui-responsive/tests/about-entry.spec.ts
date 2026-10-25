@@ -181,6 +181,27 @@ describe('关于入口（独立页面）', () => {
     expect(host.querySelectorAll('[data-dsh-about-entry]').length).toBe(1)
   })
 
+  it('回到一级列表（入口不在 DOM 里）时导航行仍然收起', async () => {
+    const host = seed('<div id="v">当前版本：0.2.1-rc.2</div><nav><button id="nav-about">关于</button></nav>')
+    cleanup = installAboutEntry()
+    await tick()
+    // 模拟离开分区：分区内容（含内联入口）被 React 卸载，只剩导航
+    host.querySelector('#v')!.remove()
+    host.querySelector('[data-dsh-about-entry]')?.remove()
+    await tick()
+    expect(host.querySelector<HTMLElement>('#nav-about')!.style.display, '导航行不得回到列表').toBe('none')
+  })
+
+  it('从未接管成功时导航行保留（兜底入口）', async () => {
+    // 「是否接管过」是模块级状态：这里要一份全新的模块实例，否则会被前面用例污染。
+    vi.resetModules()
+    const fresh = await import('../src/client/mobile/about-entry.ts')
+    const host = seed('<div>没有版本行</div><nav><button id="nav-about">关于</button></nav>')
+    cleanup = fresh.installAboutEntry()
+    await tick()
+    expect(host.querySelector<HTMLElement>('#nav-about')!.style.display).not.toBe('none')
+  })
+
   it('重复渲染不会插入第二个入口', async () => {
     const host = seed('<div id="v">当前版本：0.2.1-rc.2</div>')
     cleanup = installAboutEntry()
