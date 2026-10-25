@@ -78,6 +78,31 @@ function openAboutSection(): void {
 
 /** 把上游版本行换成「关于」入口；返回清理函数。 */
 export function installAboutEntry(): () => void {
+  /**
+   * 导航里那条「关于」只在**没有内联入口**时显示。
+   *
+   * 每轮都按现状同步，而不是「插入入口时顺手隐藏一次」：React 重建导航行会把
+   * `display:none` 与标记一起丢掉，只做一次的话列表里会重新冒出第二个「关于」。
+   */
+  const syncNavRow = (scope: ParentNode): void => {
+    const hasEntry = scope.querySelector('[data-dsh-about-entry]') !== null
+    for (const navRow of scope.querySelectorAll<HTMLElement>('nav button')) {
+      if (!(navRow.textContent ?? '').includes(tr('关于', 'About'))) continue
+      if (hasEntry) {
+        if (navRow.dataset.dshAboutNavHidden !== '1') {
+          navRow.dataset.dshAboutNavHidden = '1'
+          navRow.style.display = 'none'
+        }
+        continue
+      }
+      // 没有内联入口（例如用户停在别的分区）：保留导航行，页面依然可达。
+      if (navRow.dataset.dshAboutNavHidden === '1') {
+        delete navRow.dataset.dshAboutNavHidden
+        navRow.style.display = ''
+      }
+    }
+  }
+
   const swap = (): void => {
     // 本入口只存在于设置对话框里：没有它就直接返回。
     // 观察器挂在 body 上（必须能看见对话框出现），而聊天流式输出会高频改动 DOM——
@@ -87,6 +112,8 @@ export function installAboutEntry(): () => void {
     const scope: ParentNode = panel
     const leaves = [...scope.querySelectorAll<HTMLElement>('div, p, span')]
       .filter((node) => node.children.length === 0)
+
+    syncNavRow(scope)
 
     // 第一步：修已处理节点。React 重渲染会把 style 写回原值，只认标记不认样式的话
     // 上游版本行会「复活」，界面上就变成版本行 + 关于入口同时出现。
@@ -132,13 +159,8 @@ export function installAboutEntry(): () => void {
         button.appendChild(label)
         node.insertAdjacentElement('afterend', button)
       }
-      // 入口已就位，才把导航里那条同名行收起来——否则页面没有别的路可进。
-      for (const navRow of scope.querySelectorAll<HTMLElement>('nav button')) {
-        if (!(navRow.textContent ?? '').includes(tr('关于', 'About'))) continue
-        if (navRow.dataset.dshAboutNavHidden === '1') continue
-        navRow.dataset.dshAboutNavHidden = '1'
-        navRow.style.display = 'none'
-      }
+      // 同一轮就收起导航行：只靠下一轮 observer 的话，页面若不再变化就不会执行。
+      syncNavRow(scope)
       return
     }
   }

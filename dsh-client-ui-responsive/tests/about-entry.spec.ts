@@ -167,6 +167,20 @@ describe('关于入口（独立页面）', () => {
     expect(host.querySelectorAll('[data-dsh-about-entry]').length).toBe(1)
   })
 
+  it('导航行被重建后仍保持收起（不会冒出第二个关于）', async () => {
+    const host = seed('<div id="v">当前版本：0.2.1-rc.2</div><nav><button id="nav-about">关于</button></nav>')
+    cleanup = installAboutEntry()
+    await tick()
+    const first = host.querySelector<HTMLElement>('#nav-about')!
+    expect(first.style.display).toBe('none')
+    // 模拟 React 重建导航行：新节点、无标记、无内联样式
+    const nav = host.querySelector('nav')!
+    nav.innerHTML = '<button id="nav-about2">关于</button>'
+    await tick()
+    expect(host.querySelector<HTMLElement>('#nav-about2')!.style.display, '重建后仍应收起').toBe('none')
+    expect(host.querySelectorAll('[data-dsh-about-entry]').length).toBe(1)
+  })
+
   it('重复渲染不会插入第二个入口', async () => {
     const host = seed('<div id="v">当前版本：0.2.1-rc.2</div>')
     cleanup = installAboutEntry()
