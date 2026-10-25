@@ -148,6 +148,25 @@ describe('关于入口（独立页面）', () => {
     await act(async () => { root?.unmount() })
   })
 
+  it('没有「当前版本」文案时不得劫持别的「版本 x.y.z」行', async () => {
+    // 其它分区里常见的短信息行（例如插件/模型的「版本 1.2.3」）不能被当成上游版本行：
+    // 松匹配会把它隐藏并插上「关于」入口，这是审查中实测到的真 bug。
+    const host = seed('<div id="decoy">版本 1.2.3</div>')
+    cleanup = installAboutEntry()
+    await tick()
+    expect(host.querySelector<HTMLElement>('#decoy')!.style.display, '诱饵行不得被隐藏').not.toBe('none')
+    expect(document.querySelectorAll('[data-dsh-about-entry]').length).toBe(0)
+  })
+
+  it('精确文案存在时仍然正常接管', async () => {
+    const host = seed('<div id="decoy">版本 1.2.3</div><div id="real">当前版本：0.2.1-rc.2</div>')
+    cleanup = installAboutEntry()
+    await tick()
+    expect(host.querySelector<HTMLElement>('#real')!.style.display).toBe('none')
+    expect(host.querySelector<HTMLElement>('#decoy')!.style.display).not.toBe('none')
+    expect(host.querySelectorAll('[data-dsh-about-entry]').length).toBe(1)
+  })
+
   it('重复渲染不会插入第二个入口', async () => {
     const host = seed('<div id="v">当前版本：0.2.1-rc.2</div>')
     cleanup = installAboutEntry()

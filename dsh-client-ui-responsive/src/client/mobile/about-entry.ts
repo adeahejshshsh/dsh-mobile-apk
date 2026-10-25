@@ -95,11 +95,15 @@ export function installAboutEntry(): () => void {
       if (node.style.display !== 'none') node.style.display = 'none'
     }
 
-    // 第二步：挑未处理过的候选。优先「当前版本 / Current version」这条精确文案，
-    // 找不到才退回「含版本 + x.y.z」的宽松匹配（改版/别的语言时仍能工作）。
+    // 第二步：只认「当前版本 / Current version」这条精确文案。
+    //
+    // 不能保留「含版本 + x.y.z」的宽松兜底：其它分区里只要有一行短文案写着
+    // 「版本 1.2.3」（插件/模型的信息行就有），松匹配会把它隐藏并插上「关于」入口——
+    // 这是本轮审查实测到的真 bug。精确文案找不到时**什么都不做**：导航里那条「关于」
+    // 仍可见，用户依然进得去，属于安全失败。
     const fresh = leaves.filter((node) => !node.hasAttribute(HANDLED))
     const preferred = fresh.find((node) => /当前版本|current version/i.test(node.textContent ?? ''))
-    const candidates = preferred === undefined ? fresh : [preferred, ...fresh.filter((node) => node !== preferred)]
+    const candidates = preferred === undefined ? [] : [preferred]
 
     for (const node of candidates) {
       // 绝不能把我们自己「关于」页里的版本行当成上游那一行：那会导致版本行被隐藏、
@@ -108,7 +112,7 @@ export function installAboutEntry(): () => void {
       if (node.closest('[data-dsh-about-entry]') !== null) continue
       const text = (node.textContent ?? '').trim()
       if (text.length === 0 || text.length > 60) continue
-      if (!/版本|version/i.test(text)) continue
+      if (!/当前版本|current version/i.test(text)) continue
       // 带我们标签的版本行不是上游那行（上游只写「当前版本：x.y.z」）。
       if (/DeepCode|DeepSeek/i.test(text)) continue
       const found = VERSION.exec(text)
