@@ -192,6 +192,25 @@ describe('关于入口（独立页面）', () => {
     expect(host.querySelector<HTMLElement>('#nav-about')!.style.display, '导航行不得回到列表').toBe('none')
   })
 
+  it('重复安装（插件重载）不会把导航行放出来，也不会多出入口', async () => {
+    const host = seed('<div id="v">当前版本：0.2.1-rc.2</div><nav><button id="nav-about">关于</button></nav>')
+    const first = installAboutEntry()
+    await tick()
+    expect(host.querySelector<HTMLElement>('#nav-about')!.style.display).toBe('none')
+    // 插件卸载（热推）后重新安装：DOM 现场还在，新实例必须沿用
+    first()
+    cleanup = installAboutEntry()
+    await tick()
+    expect(host.querySelector<HTMLElement>('#nav-about')!.style.display, '导航行不得放出').toBe('none')
+    expect(host.querySelectorAll('[data-dsh-about-entry]').length, '不得多出入口').toBe(1)
+    // 旧实例插入的按钮仍可点（文档级委托）
+    const clicked: string[] = []
+    host.querySelector('#nav-about')!.addEventListener('click', () => clicked.push('nav'))
+    host.querySelector<HTMLElement>('[data-dsh-about-entry]')!.click()
+    await tick()
+    expect(clicked.length, '点击应仍然触发分区切换').toBe(1)
+  })
+
   it('从未接管成功时导航行保留（兜底入口）', async () => {
     // 「是否接管过」是模块级状态：这里要一份全新的模块实例，否则会被前面用例污染。
     vi.resetModules()

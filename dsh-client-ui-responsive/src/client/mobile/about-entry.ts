@@ -87,6 +87,11 @@ function openAboutSection(): void {
 
 /** 把上游版本行换成「关于」入口；返回清理函数。 */
 export function installAboutEntry(): () => void {
+  // 热推 / 重复安装：沿用上一实例留下的现场——版本行已被隐藏（带 data-dsh-about-source）
+  // 就说明接管过。否则新实例以为「没接管过」，会把导航行放出来，列表里又多一个「关于」。
+  // 旧实例插入的按钮不需要重建：点击走文档级委托，新实例照样接得住。
+  if (!entryInstalled && document.querySelector('[data-dsh-about-source]') !== null) entryInstalled = true
+
   /**
    * 导航里那条「关于」只在**没有内联入口**时显示。
    *
@@ -202,5 +207,8 @@ export function installAboutEntry(): () => void {
   return () => {
     observer.disconnect()
     document.removeEventListener('click', onClick, true)
+    // 不归零：同一模块实例生命周期内「接管过」不会因为 dispose 而变得不成立。
+    // 热重载得到的是全新模块实例（entryInstalled 天然为 false），届时导航行先露出来，
+    // 等用户进「通用」再次接管后才收起——这比「卸载即忘」更不容易出现双入口。
   }
 }
