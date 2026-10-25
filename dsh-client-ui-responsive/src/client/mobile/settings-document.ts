@@ -113,7 +113,17 @@ export class SettingsDocumentAction {
   attach(): void {
     document.addEventListener('click', this.onClick, true)
     this.observer?.disconnect()
-    this.observer = new MutationObserver(() => this.hideUpstreamAction())
+    // 合帧 + 早退：观察器挂在 body 上（必须能看见对话框出现），但聊天流式输出会高频改动 DOM，
+    // 不节流就会每次变更都遍历一遍按钮（与 about-entry 同一类问题，审查中一并加固）。
+    let scheduled = false
+    this.observer = new MutationObserver(() => {
+      if (scheduled) return
+      scheduled = true
+      queueMicrotask(() => {
+        scheduled = false
+        this.hideUpstreamAction()
+      })
+    })
     this.observer.observe(document.body, { childList: true, subtree: true })
     this.hideUpstreamAction()
   }
@@ -136,6 +146,9 @@ export class SettingsDocumentAction {
   private hideUpstreamAction(): void {
     const dialog = document.querySelector('[data-dsh-settings-dialog]')
     if (dialog === null) return
+    // 没有「打开配置文件」这个动作就直接返回，避免无谓地遍历按钮。
+    if (dialog.textContent?.includes(ACTION_LABELS[0]) !== true
+      && dialog.textContent?.includes(ACTION_LABELS[1]) !== true) return
     for (const button of dialog.querySelectorAll('button')) {
       if (button.dataset.dshSettingsDocHidden === '1') continue
       const label = (button.textContent ?? '').trim()
