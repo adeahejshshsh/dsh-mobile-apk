@@ -238,6 +238,15 @@ export const MARKETPLACE_CSS: string = `
   -webkit-user-select: none;
 }
 
+/* 过滤行的条数提示：勾上「仅移动端可用」时显示真实条数（服务端改用真集合分页后，
+   这个数字才是列表里真正有多少条，而不是源目录的 4544）。 */
+.dshm-mobile-count {
+  margin-left: 6px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
 .dshm-page-input {
   box-sizing: border-box;
   width: 64px;

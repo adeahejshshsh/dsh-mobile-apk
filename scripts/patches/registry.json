@@ -410,6 +410,20 @@
       "summary": "inspector 的 Worker 不再清空 execArgv：显式传 --expose-internals，使 android-arm64 上 requireBuiltin 回退可用",
       "provenance": "2026-10-21 apk issue #472：node-addon-require-builtin 无 android-arm64 预编译件，Worker 内 internal/modules/esm/loader 必 MODULE_NOT_FOUND（设备实测）",
       "marker": "dsh-mobile inspector worker expose-internals (472)"
+    },
+    {
+      "id": "market-K-mobile-index",
+      "target": "dshmarketplace-plugin/lib/index.js",
+      "summary": "勾选移动端可用时改按「真集合」分页：并发按 ok 包名建索引并缓存，total 等于集合长度",
+      "provenance": "0.15.0 用户反馈：勾选移动端可用后仍显示 48 个页码",
+      "marker": "MK_CACHE 且 Wc.__ok 且 await MK(c)"
+    },
+    {
+      "id": "market-L-mobile-count",
+      "target": "dshmarketplace-plugin/lib/client.js",
+      "summary": "过滤行显示筛出的真实条数（dshm-mobile-count）",
+      "provenance": "0.15.0 用户反馈：勾选移动端可用后仍显示 48 个页码",
+      "marker": "dshm-mobile-count"
     }
   ],
   "retired": [

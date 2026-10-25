@@ -602,6 +602,61 @@ const IMPLS = {
     },
   },
 
+  // ── marketplace K：移动端过滤改成「真集合」分页（0.15.0 用户反馈）──
+  // 现象：勾上「仅移动端可用」后仍显示 48 个页码。真因：分页用的是目录接口的 total
+  // （installCheck=passed 后 4544 条），而 compat 是本包用 23 条硬编码映射**本地派生**的，
+  // 接口没有 compat 过滤参数（compat/compatibility/platform 实测都被忽略）——于是过滤只
+  // 在「当前页 96 条里」生效，页码自然还是按 4544 算出来的 48。
+  //
+  // 做法：勾上过滤时不再逐页过滤，而是先建一份「移动端可用」集合——按映射表里 ok 的那些
+  // 包名并发搜索（实测 15 个名字 / 并发 5 / 2.5 秒拿全 13 条），缓存 10 分钟，
+  // total 直接等于集合长度 → 页码变成真实的 1 页，且 q/category 仍在集合内二次筛。
+  'market-K-mobile-index': {
+    file: 'dshmarketplace-plugin/lib/index.js',
+    check: (s) => s.includes('MK_CACHE') && s.includes('Wc.__ok'),
+    apply: (s) => {
+      const W_OLD = '},e=String(t.fullName??"").split("#").pop().split("/").pop().toLowerCase()'
+      const W_NEW = '},_ok=Wc.__ok||(Wc.__ok=Object.keys(_).filter(k=>_[k]==="ok")),e=String(t.fullName??"").split("#").pop().split("/").pop().toLowerCase()'
+      const MK = 'var MK_CACHE={at:0,items:null};async function MK(c){let now=Date.now();if(MK_CACHE.items&&now-MK_CACHE.at<6e5)return MK_CACHE.items;'
+        // Wc.__ok 是在 Wc 内部惰性初始化的：先空跑一次确保映射表就绪，再取 ok 名单。
+        + 'if(!Wc.__ok)Wc({fullName:""});'
+        + 'let out=[],seen=new Set(),q=(Wc.__ok??[]).slice();'
+        + 'await Promise.all(Array.from({length:5},async()=>{for(;;){let name=q.shift();if(!name)return;try{let r=await c({q:name,limit:96,installCheck:"passed"});for(let x of(r.results??[])){let m=Wc(x);if(m.compat==="ok"&&!seen.has(m.fullName)){seen.add(m.fullName);out.push(m)}}}catch{}}}));'
+        + 'out.sort((a,b)=>Number(b.stars??0)-Number(a.stars??0));MK_CACHE={at:Date.now(),items:out};return out}'
+      const D_OLD = 'function Dt(t){'
+      const FILTER_OLD = 'if(_m)_c.results=_c.results.filter(x=>x.compat==="ok");'
+      // 过滤分支：整集合 + 按 page/limit 切片；q 与 category 在集合内二次筛
+      const FILTER_NEW = 'if(_m){let _q2=String(s.searchParams.get("q")??"").trim().toLowerCase(),_cat2=s.searchParams.get("category")??void 0,'
+        + '_pg=Math.max(1,Number(s.searchParams.get("page")??1)||1),_lim=Math.min(96,Math.max(1,Number(s.searchParams.get("limit")??96)||96)),'
+        + '_idx=await MK(c);'
+        + 'if(_cat2)_idx=_idx.filter(x=>x.category===_cat2);'
+        + 'if(_q2)_idx=_idx.filter(x=>[x.fullName,x.name,x.summary,x.summaryZh].some(v=>String(v??"").toLowerCase().includes(_q2)));'
+        + 'let _off=(_pg-1)*_lim;_c={total:_idx.length,count:Math.max(0,Math.min(_lim,_idx.length-_off)),results:_idx.slice(_off,_off+_lim)}}'
+      for (const [old, name] of [[W_OLD, 'Wc 映射'], [FILTER_OLD, '移动过滤分支'], [D_OLD, '插件入口']]) {
+        if (!s.includes(old)) throw new Error('market-K ' + name + '锚点未命中——上游服务端已变，请人工核对')
+      }
+      s = s.replace(W_OLD, W_NEW, 1)
+      s = s.replace(D_OLD, MK + D_OLD, 1)
+      s = s.replace(FILTER_OLD, FILTER_NEW, 1)
+      if (!s.includes('MK_CACHE') || !s.includes('Wc.__ok') || !s.includes('await MK(c)')) throw new Error('market-K 复核失败——不写回')
+      return s
+    },
+  },
+
+  // ── marketplace L：过滤行显示真实条数（配合 K，告诉用户筛出了多少）──
+  'market-L-mobile-count': {
+    file: 'dshmarketplace-plugin/lib/client.js',
+    check: (s) => s.includes('dshm-mobile-count'),
+    apply: (s) => {
+      const OLD = ',"\u4EC5\u79FB\u52A8\u7AEF\u53EF\u7528")'
+      const NEW = ',"\u4EC5\u79FB\u52A8\u7AEF\u53EF\u7528",mo&&typeof tt!=="undefined"?s.default.createElement("span",{className:"dshm-mobile-count"},String(tt)+" \u6761"):null)'
+      if (!s.includes(OLD)) throw new Error('market-L 锚点未命中——过滤行结构已变')
+      s = s.replace(OLD, NEW, 1)
+      if (!s.includes('dshm-mobile-count')) throw new Error('market-L 复核失败——不写回')
+      return s
+    },
+  },
+
   // ── marketplace J：市场对话框改成整页（带返回条）──
   // 用户定例（0.15.0）：市场要是「完整的、可返回上级的界面」，不是浮在 UI 上的小窗。
   // 该页所在面（插件页）不在设置对话框内，DOM 里没有设置导航，跳设置分区不可行；
