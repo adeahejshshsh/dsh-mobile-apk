@@ -186,6 +186,36 @@ describe('重新打开设置后不沿用旧历史', () => {
   })
 })
 
+describe('系统返回（蒙层 / Escape）也按上一页回退', () => {
+  it('A → B 后点蒙层，回到 A 而不是列表', async () => {
+    const handle = buildPanel(['通用设置', '关于'], '通用设置')
+    nav = new MobileSettingsNav()
+    nav.attach()
+    handle.rows.get('通用设置')!.click()
+    await settle()
+    handle.rows.get('关于')!.click()
+    await settle()
+    handle.mask.click()
+    await settle()
+    expect(handle.panel.getAttribute('data-dsh-settings-level')).toBe('detail')
+    expect(handle.panel.querySelector('[data-dsh-settings-bar-title]')!.textContent).toBe('通用设置')
+  })
+
+  it('A → B 后按 Escape，回到 A 而不是列表', async () => {
+    const handle = buildPanel(['通用设置', '关于'], '通用设置')
+    nav = new MobileSettingsNav()
+    nav.attach()
+    handle.rows.get('通用设置')!.click()
+    await settle()
+    handle.rows.get('关于')!.click()
+    await settle()
+    handle.panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    await settle()
+    expect(handle.panel.getAttribute('data-dsh-settings-level')).toBe('detail')
+    expect(handle.panel.querySelector('[data-dsh-settings-bar-title]')!.textContent).toBe('通用设置')
+  })
+})
+
 describe('二级页之间跳转与逐页返回', () => {
   it('详情页里换到另一个分区后，返回回到上一页而不是列表', async () => {
     const handle = buildPanel(['通用设置', '关于'], '通用设置')

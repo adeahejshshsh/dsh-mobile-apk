@@ -334,7 +334,9 @@ export class MobileSettingsNav {
       if (this.level === LEVEL_DETAIL && this.isSettingsMask(target, panel)) {
         event.preventDefault()
         event.stopPropagation()
-        this.backToHome(panel)
+        // 系统返回在 dialog 层表现为「点蒙层」——同样要走 goBack，
+        // 否则「通用 → 关于 → 系统返回」会一次退到列表（用户反馈）。
+        this.goBack(panel)
       }
     } catch (error) {
       console.warn('[dsh-settings-nav] click handling failed; the panel keeps upstream behavior', error)
@@ -342,10 +344,10 @@ export class MobileSettingsNav {
   }
 
   /**
-   * Escape 在二级页里只退回首页。
+   * Escape 在二级页里按「上一页」回退（没有上一页才回首页）。
    *
    * 上游 `useModalLayer` 把 Escape 接成「关设置」；二级页里那会一次退两级。捕获阶段先拦下，
-   * 首页则原样放行给上游（它才是设置的关闭路径）。
+   * 首页则原样放行给上游（它才是设置的关闭路径）。系统返回若走键盘通道也走这条路。
    */
   private readonly onKeyDown = (event: KeyboardEvent): void => {
     if (event.key !== 'Escape' || this.level !== LEVEL_DETAIL) return
@@ -353,7 +355,7 @@ export class MobileSettingsNav {
     if (panel === null) return
     event.preventDefault()
     event.stopPropagation()
-    this.backToHome(panel)
+    this.goBack(panel)
   }
 
   /** 返回键：二级页先回「上一页」，没有再回首页；首页关设置。 */
