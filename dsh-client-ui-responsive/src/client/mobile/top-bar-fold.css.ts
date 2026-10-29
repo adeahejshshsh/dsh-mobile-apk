@@ -59,10 +59,10 @@ html[data-dsh-mobile-form] div[data-dsh-topbar-fold-uncontained] {
 }
 
 /* 折叠箭头：紧凑、与两个侧边栏按钮同一视觉重量，靠右。 */
-/* 视图菜单（上游视图标签条上的「…」按钮）：用户定例移除，只保留折叠箭头。
-   它带 aria-haspopup="menu"，而我们的箭头没有，按这个属性精确命中，
-   不会误伤标签条里的其它控件。 */
-html[data-dsh-mobile-form] [data-conversation-tabs] button[aria-haspopup='menu'] {
+/* 视图菜单（上游的「…」）：用户定例移除，只保留折叠箭头。
+   注意它**不是**标签条的子节点，而是标签条（[data-conversation-tabs]）的兄弟节点——
+   按「标签条的下一个兄弟」精确命中；标签条存在但没有菜单时该规则自然不生效。 */
+html[data-dsh-mobile-form] [data-conversation-tabs] + * {
   display: none;
 }
 
