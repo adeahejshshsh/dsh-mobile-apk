@@ -151,4 +151,11 @@ export const MOBILE_FORM_CSS: string = `
     transition: none;
   }
 }
+/* 左栏「更多」入口（上游 sidebar 的 PanelMoreMenu）：用户定例移除。
+   它是左栏里唯一带 aria-haspopup=menu 的导航按钮；会话列表底部那个「… 更多」是普通按钮，
+   不带该属性，不会被这条规则误伤。 */
+html[data-dsh-mobile-form] button[aria-haspopup='menu'][aria-label='更多'],
+html[data-dsh-mobile-form] button[aria-haspopup='menu'][aria-label='More'] {
+  display: none;
+}
 `
