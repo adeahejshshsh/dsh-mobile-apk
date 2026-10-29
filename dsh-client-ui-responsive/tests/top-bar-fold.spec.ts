@@ -116,6 +116,16 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
+describe('视图菜单与折叠箭头的位置', () => {
+  it('隐藏上游视图标签条上的「…」菜单（只留折叠箭头）', () => {
+    expect(TOP_BAR_FOLD_CSS).toMatch(/\[data-conversation-tabs\]\s+button\[aria-haspopup=['"]menu['"]\]/)
+  })
+
+  it('折叠箭头靠最右（margin-left:auto）', () => {
+    expect(TOP_BAR_FOLD_CSS).toMatch(/\[data-dsh-topbar-fold-arrow\]\s*\{[^}]*margin-left:\s*auto/)
+  })
+})
+
 describe('D 项：竖屏顶栏插件 UI 折叠', () => {
   it('手机竖屏：箭头挂在视图标签条最右，且顶栏原生控件仍保留', async () => {
     fold.attach()
